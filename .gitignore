@@ -1,0 +1,29 @@
+# Secrets — never commit real values.  Use .env.example as the template.
+.env
+env.txt
+!.env.example
+
+# SQLite database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Runtime logs (rotating, written by app/utils/logger.py)
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store

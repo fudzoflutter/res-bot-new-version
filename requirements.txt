@@ -1,0 +1,6 @@
+# --- Monitoring Bot requirements -------------------------------------------
+# Python 3.11+ recommended (aiogram 3.31+ requires it).
+aiogram==3.31.0
+asyncpg==0.30.0
+aiosqlite==0.20.0
+python-dotenv==1.0.1
