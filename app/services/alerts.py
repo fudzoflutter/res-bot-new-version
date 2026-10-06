@@ -19,6 +19,8 @@ yoziladi (admin panelda tarix qoladi).
 
 from __future__ import annotations
 
+from app.emoji_config import EMOJI
+
 from app.utils.timeutils import local_now
 
 import logging
@@ -49,9 +51,9 @@ COOLDOWNS = {
 
 ICONS = {
     SEVERITY_INFO: "ℹ️",
-    SEVERITY_WARNING: "⚠️",
-    SEVERITY_ERROR: "🔴",
-    SEVERITY_CRITICAL: "🚨",
+    SEVERITY_WARNING: EMOJI.warning.plain,
+    SEVERITY_ERROR: EMOJI.offline_dot.plain,
+    SEVERITY_CRITICAL: EMOJI.critical.plain,
 }
 
 Sender = Callable[[str], Awaitable[None]]
@@ -117,7 +119,7 @@ class AlertService:
             logger.warning("Alert suppressed (cooldown %ss): %s", int(limit), key)
             return False
 
-        icon = ICONS.get(severity, "⚠️")
+        icon = ICONS.get(severity, EMOJI.warning.plain)
         safe_title = esc(title)
         safe_body = esc(body) if body else ""
         text = f"{icon} <b>{safe_title}</b>"

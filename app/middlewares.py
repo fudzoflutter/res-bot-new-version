@@ -33,6 +33,8 @@ foydalanuvchi uni KUTMAYDI (60 sekundda bir marta).
 
 from __future__ import annotations
 
+from app.emoji_config import EMOJI
+
 import logging
 import time
 from typing import Any, Awaitable, Callable, Optional
@@ -185,7 +187,7 @@ class RegisterUserMiddleware(BaseMiddleware):
         try:
             if isinstance(direct, CallbackQuery):
                 await direct.answer(
-                    "🔧 Bot texnik xizmatda. Iltimos, keyinroq urinib ko'ring.",
+                    f"{EMOJI.maintenance.plain} Bot texnik xizmatda. Iltimos, keyinroq urinib ko'ring.",
                     show_alert=True,
                 )
             elif isinstance(direct, Message):
@@ -196,7 +198,7 @@ class RegisterUserMiddleware(BaseMiddleware):
     @staticmethod
     async def _announce_banned(direct: TelegramObject) -> None:
         """Ban qilingan foydalanuvchiga qisqa sabab (xato bo'lsa jim)."""
-        text = "🚫 Siz botdan foydalanishdan bloklangansiz."
+        text = f"{EMOJI.blocked.plain} Siz botdan foydalanishdan bloklangansiz."
         try:
             if isinstance(direct, CallbackQuery):
                 await direct.answer(text, show_alert=True)

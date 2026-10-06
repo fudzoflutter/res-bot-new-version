@@ -30,6 +30,8 @@ Har bir hodisa DBga (statistika + activity log) va adminga xabar qilinadi.
 
 from __future__ import annotations
 
+from app.emoji_config import EMOJI
+
 import logging
 import time
 from pathlib import Path
@@ -42,6 +44,7 @@ from aiogram.types import (
     BusinessMessagesDeleted,
     BufferedInputFile,
     Message,
+    ReplyParameters,
     User as TgUser,
 )
 
@@ -141,7 +144,7 @@ async def on_connection(connection: BusinessConnection, bot: Bot) -> None:
     try:
         if maintenance_block:
             text = (
-                "🛠 <b>Maintenance mode</b>\n\n"
+                f"{EMOJI.maintenance_connection.tag} <b>Maintenance mode</b>\n\n"
                 "Bot hozir texnik xizmat rejimida. Yangi ulanish saqlandi. "
                 "Monitoring davom etadi, lekin foydalanuvchiga hisobotlar vaqtincha yuborilmaydi."
             )
@@ -161,9 +164,9 @@ async def on_connection(connection: BusinessConnection, bot: Bot) -> None:
         logger.info("Could not notify user %s about connection change", user.id)
 
     # 2) Statistika yozuvi.
-    state_word = "🔗 ULANDI" if effective_enabled else "🔴 UZILDI"
+    state_word = f"{EMOJI.connect_title.plain} ULANDI" if effective_enabled else f"{EMOJI.offline_dot.plain} UZILDI"
     action_word = "ulandi" if effective_enabled else "uzildi"
-    detail_word = "faollashtirildi ✅" if effective_enabled else "o'chirildi ❌"
+    detail_word = f"faollashtirildi {EMOJI.ok.plain}" if effective_enabled else f"o'chirildi {EMOJI.failed.plain}"
     await db.add_event(
         user_id=user.id,
         event_type="connection",
@@ -314,19 +317,26 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
 
     media_type, file_id = media
 
-    async def send_media(media_input) -> None:
+    emoji, media_name = {
+        "photo": (EMOJI.view_once_photo, "Rasm"),
+        "video": (EMOJI.view_once_video, "Video"),
+        "video_note": (EMOJI.view_once_video_note, "Aylana video"),
+    }[media_type]
+    saved_text = f"{emoji.tag} <b>{media_name} saqlandi</b> · View Once"
+
+    async def send_media(media_input):
         # No business_connection_id: send only to the connection owner's bot chat.
         if media_type == "photo":
-            await tg_call("view_once_photo", lambda: bot.send_photo(
-                destination, media_input, caption="💾 View Once saqlandi",
+            return await tg_call("view_once_photo", lambda: bot.send_photo(
+                destination, media_input, caption=saved_text, parse_mode="HTML",
             ))
         elif media_type == "video":
-            await tg_call("view_once_video", lambda: bot.send_video(
-                destination, media_input, caption="💾 View Once saqlandi",
+            return await tg_call("view_once_video", lambda: bot.send_video(
+                destination, media_input, caption=saved_text, parse_mode="HTML",
                 supports_streaming=True,
             ))
         else:
-            await tg_call("view_once_video_note", lambda: bot.send_video_note(
+            return await tg_call("view_once_video_note", lambda: bot.send_video_note(
                 destination, media_input,
             ))
 
@@ -336,7 +346,7 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
     try:
         try:
             # Telegram reuses its stored file. No get_file/download/upload round trip.
-            await send_media(file_id)
+            sent_media = await send_media(file_id)
         except TelegramBadRequest as exc:
             # Retry only a rejected media reference, never an ambiguous network send.
             reason = str(exc).lower()
@@ -362,10 +372,22 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
             suffix = Path(tg_file.file_path).suffix
             if not suffix:
                 suffix = ".jpg" if media_type == "photo" else ".mp4"
-            await send_media(BufferedInputFile(raw, filename=f"view_once{suffix}"))
+            sent_media = await send_media(BufferedInputFile(raw, filename=f"view_once{suffix}"))
 
         send_ms = int((time.monotonic() - delivery_started) * 1000)
         await db.set_setting(dedupe_key, "1")
+        if media_type == "video_note":
+            # Video notes have no caption. Keep the receipt linked to the saved media.
+            # Failure of the receipt must never resend the already delivered video.
+            try:
+                await tg_call("view_once_receipt", lambda: bot.send_message(
+                    destination, saved_text, parse_mode="HTML",
+                    reply_parameters=ReplyParameters(
+                        message_id=sent_media.message_id, allow_sending_without_reply=True,
+                    ),
+                ))
+            except Exception:
+                logger.exception("View Once receipt failed: conn=%s", connection_id)
         logger.info(
             "View Once saved: conn=%s chat=%s trigger=%s target=%s type=%s delivery=%s lookup_ms=%s send_ms=%s total_ms=%s",
             connection_id,

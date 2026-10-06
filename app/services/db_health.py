@@ -17,6 +17,8 @@ paytda ham.
 
 from __future__ import annotations
 
+from app.emoji_config import EMOJI
+
 from app.utils.timeutils import local_now
 
 import re
@@ -105,8 +107,8 @@ class DbHealth:
     @property
     def status_icon(self) -> str:
         if self.connected:
-            return "🟢"
-        return "🔴"
+            return EMOJI.online_dot.plain
+        return EMOJI.offline_dot.plain
 
     def snapshot(self) -> dict:
         """Admin panel uchun qisqa holat."""

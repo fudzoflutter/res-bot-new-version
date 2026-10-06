@@ -42,7 +42,8 @@ def admin_panel_menu() -> InlineKeyboardMarkup:
         [
             [
                 InlineKeyboardButton(
-                    text="🛡 Admin panelni ochish",
+                    text=f"{EMOJI.admin_panel.plain} Admin panelni ochish",
+                    icon_custom_emoji_id=EMOJI.admin_panel.emoji_id or None,
                     web_app=WebAppInfo(url=webapp_url()),
                     style=BtnStyle.PRIMARY,
                 )
@@ -96,6 +97,8 @@ def connect_menu(bot_username: str = "") -> InlineKeyboardMarkup:
         "url": "tg://settings/edit",
         "style": BtnStyle.SUCCESS,
     }
+    if EMOJI.menu_settings.emoji_id:
+        settings_button["icon_custom_emoji_id"] = EMOJI.menu_settings.emoji_id
     return kb(
         [
             [InlineKeyboardButton(**settings_button)],

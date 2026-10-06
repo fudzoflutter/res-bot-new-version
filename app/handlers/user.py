@@ -16,6 +16,8 @@ kira olmaydi — bu handlers darajasida tekshiriladi.
 
 from __future__ import annotations
 
+from app.emoji_config import EMOJI
+
 import logging
 
 from aiogram import F, Router
@@ -125,15 +127,15 @@ async def show_stats(cb: CallbackQuery) -> None:
         cb.from_user.id, cb.from_user.first_name or "User", cb.from_user.username
     )
     body = (
-        f"👤 Profil: {mention}\n"
-        f"🆔 ID: <code>{cb.from_user.id}</code>\n\n"
-        f"🔗 Ulanish: {'🟢 ulangan' if stats['active_connections'] else '⚪️ ulanmagan'}\n\n"
-        f"📥 Yozib olingan xabarlar: <b>{fmt_number(stats['events_total'])}</b>\n"
-        f"✏️ Tahrirlar: <b>{fmt_number(stats['edits'])}</b>\n"
-        f"🗑 O'chirishlar: <b>{fmt_number(stats['deletes'] + stats['deletes_media'])}</b>"
+        f"{EMOJI.report_user.tag} Profil: {mention}\n"
+        f"{EMOJI.report_id.tag} ID: <code>{cb.from_user.id}</code>\n\n"
+        f"{EMOJI.connect_title.tag} Ulanish: {texts.CONNECTED_LINE if stats['active_connections'] else texts.NOT_CONNECTED_LINE}\n\n"
+        f"{EMOJI.inbox.tag} Yozib olingan xabarlar: <b>{fmt_number(stats['events_total'])}</b>\n"
+        f"{EMOJI.report_edit.tag} Tahrirlar: <b>{fmt_number(stats['edits'])}</b>\n"
+        f"{EMOJI.report_delete.tag} O'chirishlar: <b>{fmt_number(stats['deletes'] + stats['deletes_media'])}</b>"
     )
     await cb.message.edit_text(
-        f"📊 <b>Sizning statistikangiz</b>\n\n{body}",
+        f"{EMOJI.stats_header.tag} <b>Sizning statistikangiz</b>\n\n{body}",
         reply_markup=user_kb.back_to_menu(),
         parse_mode="HTML",
     )

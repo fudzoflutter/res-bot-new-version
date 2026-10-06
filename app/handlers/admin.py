@@ -13,6 +13,8 @@ imzosini va rolni qayta tekshiradi.
 
 from __future__ import annotations
 
+from app.emoji_config import EMOJI
+
 import logging
 
 from aiogram import Router
@@ -26,7 +28,7 @@ router = Router(name="admin")
 logger = logging.getLogger(__name__)
 
 ADMIN_PANEL_TEXT = (
-    "🛡 <b>ADMIN PANEL</b>\n\n"
+    f"{EMOJI.admin_panel.tag} <b>ADMIN PANEL</b>\n\n"
     "Boshqaruv paneli Web Mini App ichida ochiladi — pastdagi tugmani bosing."
 )
 

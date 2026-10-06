@@ -11,6 +11,8 @@ Reads top-to-bottom to understand how the bot is assembled:
 
 from __future__ import annotations
 
+from app.emoji_config import EMOJI
+
 import asyncio
 import logging
 
@@ -175,7 +177,7 @@ async def _startup_warnings(bot: Bot) -> None:
             "FORCE_POLL=1 YOQILGAN",
             "Bir nusxa qulfi o'chirilgan. Bu faqat diagnostika/ favqulodda "
             "holat uchun.\n"
-            + ("⚠️ Bu PRODUCTION muhit!\n" if settings.production else "")
+            + (f"{EMOJI.warning.plain} Bu PRODUCTION muhit!\n" if settings.production else "")
             + "Productionda FORCE_POLL ni o'chiring (env: FORCE_POLL=0).",
             severity=(
                 alerts.SEVERITY_CRITICAL

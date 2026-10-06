@@ -22,6 +22,8 @@ status endpoint o'zgarishsiz ishlaydi.
 
 from __future__ import annotations
 
+from app.emoji_config import EMOJI
+
 import asyncio
 import json
 import logging
@@ -236,19 +238,19 @@ def preview(ad: Ad) -> dict[str, Any]:
     """Preview: yuboriladigan xabarning AYNAN tuzilishi (matn ko'rinishida)."""
     lines: list[str] = []
     if ad.has_media:
-        lines.append(f"🖼 MEDIA [{ad.media_type}]: {ad.media_url}")
+        lines.append(f"{EMOJI.preview_media.plain} MEDIA [{ad.media_type}]: {ad.media_url}")
     if ad.caption:
-        lines.append("📝 CAPTION:")
+        lines.append(f"{EMOJI.report_text.plain} CAPTION:")
         lines.append(ad.caption)
     if ad.buttons:
         lines.append("")
-        lines.append(f"🔘 TUGMALAR ({len(ad.buttons)}/{MAX_BUTTONS}):")
+        lines.append(f"{EMOJI.preview_buttons.plain} TUGMALAR ({len(ad.buttons)}/{MAX_BUTTONS}):")
         for index, button in enumerate(ad.buttons, start=1):
             style = f" [{button.style}]" if button.style else ""
             lines.append(f"  {index}. {button.text} -> {button.url}{style}")
     else:
         lines.append("")
-        lines.append("🔘 TUGMALAR: yo'q")
+        lines.append(f"{EMOJI.preview_buttons.plain} TUGMALAR: yo'q")
     return {
         **ad.to_dict(),
         "buttons_count": len(ad.buttons),

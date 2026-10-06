@@ -23,6 +23,8 @@ keyingi siklda qayta uriniladi (supervisor uni baribir qayta ishga tushiradi,
 
 from __future__ import annotations
 
+from app.emoji_config import EMOJI
+
 import asyncio
 import logging
 import time
@@ -91,12 +93,12 @@ class WatchdogState:
     @property
     def status_icon(self) -> str:
         if not self.running:
-            return "🔴"
+            return EMOJI.offline_dot.plain
         if self.consecutive_failures >= FAILURE_ALERT_THRESHOLD:
-            return "🔴"
+            return EMOJI.offline_dot.plain
         if self.consecutive_failures:
-            return "⚠️"
-        return "🟢"
+            return EMOJI.warning.plain
+        return EMOJI.online_dot.plain
 
     @property
     def status_text(self) -> str:
@@ -196,7 +198,7 @@ async def _alert_failures() -> None:
         f"Watchdog ketma-ket {state.consecutive_failures} marta xato berdi.\n"
         f"Oxirgi xato: {state.last_error}\n"
         f"Jami sikl: {state.cycles}, xatolar: {state.failures}\n"
-        "Tekshiring: 🗄 Database va 📋 Activity Logs.",
+        f"Tekshiring: {EMOJI.database.plain} Database va {EMOJI.activity_log.plain} Activity Logs.",
         severity=alerts.SEVERITY_ERROR,
         also_log=False,
     )

@@ -21,6 +21,8 @@ Barcha tekshiruvlar SERVER-SIDE: tugmani yashirish yetarli emas.
 
 from __future__ import annotations
 
+from app.emoji_config import EMOJI
+
 import asyncio
 import json
 import logging
@@ -251,10 +253,10 @@ def role_label(user_id: int) -> str:
     if role is None:
         return "—"
     icons = {
-        ROLE_OWNER: "👑",
-        ROLE_ADMIN: "🛡",
-        ROLE_MODERATOR: "⚖️",
-        ROLE_VIEWER: "👁",
+        ROLE_OWNER: EMOJI.role_owner.plain,
+        ROLE_ADMIN: EMOJI.admin_panel.plain,
+        ROLE_MODERATOR: EMOJI.role_moderator.plain,
+        ROLE_VIEWER: EMOJI.role_viewer.plain,
     }
     return f"{icons.get(role, '•')} {role}"
 

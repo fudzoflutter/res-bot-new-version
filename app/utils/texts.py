@@ -36,13 +36,13 @@ E_MISSED = EMOJI.missed
 # /start – asosiy menyu
 # ---------------------------------------------------------------------------
 WELCOME = (
-    f"👋 <b>Assalomu alaykum! </b>\n\n"
+    f"{EMOJI.welcome.tag} <b>Assalomu alaykum! </b>\n\n"
     "Men sizning shaxsiy faoliyat-nazorat botingizman.\n"
     "Meni Telegram akkauntingizga ulang — suhbatdoshingiz yuborgan xabarlar "
     "tahrirlanganda yoki o'chirilganda darhol xabar beraman (matn, stiker, "
     "rasm, video, GIF, ovozli xabar, musiqa, fayl va dumaloq video).\n\n"
 )
-MENU_HINT = "Quyidagi amallardan birini tanlang 👇"
+MENU_HINT = f"Quyidagi amallardan birini tanlang {EMOJI.menu_hint.tag}"
 
 # /start bosilganda, foydalanuvchi ALLAQACHON ulangan bo'lsa.
 ALREADY_CONNECTED = (
@@ -57,10 +57,10 @@ ALREADY_CONNECTED = (
 CONNECT_TITLE = (
     f"{EMOJI.connect_title.tag} <b>Botni ulash</b>\n\n"
     "Quyidagi bosqichlarni bajaring (~30 soniya):\n\n"
-    "1️⃣ «⚙️ Sozlamalarni ochish» tugmasini bosing\n"
-    "2️⃣ <b>Telegram Business</b> bo'limini oching\n"
-    "3️⃣ <b>Chatbotlar</b> bandida\n"
-    "4️⃣ <b>Bot qo'shish</b>ni tanlab, <b>@{bot_username}</b> ni tanlang\n\n"
+    f"{EMOJI.step_one.tag} «{EMOJI.menu_settings.tag} Sozlamalarni ochish» tugmasini bosing\n"
+    f"{EMOJI.step_two.tag} <b>Telegram Business</b> bo'limini oching\n"
+    f"{EMOJI.step_three.tag} <b>Chatbotlar</b> bandida\n"
+    f"{EMOJI.step_four.tag} <b>Bot qo'shish</b>ni tanlab, <b>@{{bot_username}}</b> ni tanlang\n\n"
     f"{EMOJI.ok.tag} Tayyor! Meni ulashingiz bilan shu yerga tasdiq xabari keladi — "
     "aloqa uzilsa ham darhol xabar beraman."
 )
@@ -79,8 +79,8 @@ STATS_BODY = (
     f"{E_TRASH} O'chirishlar: <b>{{deletes}}</b>"
 )
 
-CONNECTED_LINE = "🟢 ulangan"
-NOT_CONNECTED_LINE = "⚪️ ulanmagan"
+CONNECTED_LINE = f"{EMOJI.online_dot.tag} ulangan"
+NOT_CONNECTED_LINE = f"{EMOJI.disconnected.tag} ulanmagan"
 
 # ---------------------------------------------------------------------------
 # Ulanish haqidagi xabarlar
@@ -197,16 +197,16 @@ UNKNOWN_CHAT = "Noma'lum chat"
 # ---------------------------------------------------------------------------
 # Turli
 # ---------------------------------------------------------------------------
-UNKNOWN_ACTION = "🤔 Noma'lum amal — quyidagi menyudan foydalaning."
-ERROR_USER = "😔 Xatolik yuz berdi. Keyinroq qayta urinib ko'ring."
+UNKNOWN_ACTION = f"{EMOJI.unknown_action.tag} Noma'lum amal — quyidagi menyudan foydalaning."
+ERROR_USER = f"{EMOJI.error.tag} Xatolik yuz berdi. Keyinroq qayta urinib ko'ring."
 
 USER_BANNED = (
-    "🚫 <b>Sizning botdan foydalanishingiz vaqtincha bloklandi.</b>\n\n"
+    f"{EMOJI.blocked.tag} <b>Sizning botdan foydalanishingiz vaqtincha bloklandi.</b>\n\n"
     "Agar bu xato deb hisoblasangiz, administrator bilan bog'laning."
 )
 
 USER_UNBANNED = (
-    "✅ <b>Sizning botdan foydalanishingiz qayta yoqildi.</b>\n\n"
+    f"{EMOJI.ok.tag} <b>Sizning botdan foydalanishingiz qayta yoqildi.</b>\n\n"
     "Endi botdan yana odatdagidek foydalanishingiz mumkin."
 )
 
@@ -214,13 +214,13 @@ USER_UNBANNED = (
 # ADMIN ROLI HAQIDAGI SHAXSIY BILDIRISHNOMALAR — app/web.py
 # ---------------------------------------------------------------------------
 ADMIN_ROLE_ASSIGNED = (
-    "🛡 <b>Sizga admin panel huquqi berildi.</b>\n\n"
+    f"{EMOJI.admin_panel.tag} <b>Sizga admin panel huquqi berildi.</b>\n\n"
     "Yangi rolingiz: <b>{role}</b>\n"
     "Endi /admin orqali sizga berilgan bo'limlardan foydalanishingiz mumkin."
 )
 
 ADMIN_ROLE_CHANGED = (
-    "🔄 <b>Admin panel rolingiz o'zgartirildi.</b>\n\n"
+    f"{EMOJI.role_changed.tag} <b>Admin panel rolingiz o'zgartirildi.</b>\n\n"
     "Eski rol: <b>{old_role}</b>\n"
     "Yangi rol: <b>{new_role}</b>"
 )
@@ -236,23 +236,23 @@ ADMIN_ROLE_REMOVED = (
 # ---------------------------------------------------------------------------
 # Hold mode YOQILGANDA oddiy foydalanuvchi ko'radigan xabar.
 HOLD_MODE = (
-    "🔧 <b>Bot vaqtincha ish faoliyatini to'xtatdi.</b>\n\n"
+    f"{EMOJI.maintenance.tag} <b>Bot vaqtincha ish faoliyatini to'xtatdi.</b>\n\n"
     "Hozir botda texnik ishlar olib borilmoqda.\n"
     "Bot qayta ishga tushganda sizga xabar beramiz."
 )
 
 # Hold mode O'CHIRILGANDAN keyin (ixtiyoriy, sozlama orqali) yuboriladi.
 HOLD_RESUMED = (
-    "🟢 <b>Bot yana ishga tushdi!</b>\n\n"
+    f"{EMOJI.online_dot.tag} <b>Bot yana ishga tushdi!</b>\n\n"
     "Texnik ishlar yakunlandi.\n"
-    "Endi botdan odatdagidek foydalanishingiz mumkin. ✅"
+    f"Endi botdan odatdagidek foydalanishingiz mumkin. {EMOJI.ok.tag}"
 )
 
 # ---------------------------------------------------------------------------
 # IKKI NUSXA (409 Conflict) — faqat adminga (app/services/duplicate_watch.py)
 # ---------------------------------------------------------------------------
 DUPLICATE_POLLER = (
-    "⚠️ <b>DIQQAT: botni IKKI nusxa poll qilmoqda</b>\n\n"
+    f"{EMOJI.warning.tag} <b>DIQQAT: botni IKKI nusxa poll qilmoqda</b>\n\n"
     "Telegram bitta token uchun faqat BITTA nusxaga xabar beradi, shuning "
     "uchun ikkinchi nusxa bilan navbatma-navbat to'qnashyapmiz "
     "(<code>409 Conflict</code>). Natijada update'lar ikki nusxa orasida "
