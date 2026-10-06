@@ -846,31 +846,11 @@ async def api_user_detail(request: web.Request) -> web.Response:
         payload = _user_payload(row)
         payload["stats"] = stats
         payload["connections"] = await db.connections_for_user(user_id)
-        payload["events"] = [
-            _event_payload(row)
-            for row in await db.search_events(user_id=user_id, limit=12, offset=0)
-        ]
         payload["requested_by_role"] = identity["role"]
         return web.json_response(payload, headers=_NO_CACHE)
     except Exception as exc:  # noqa: BLE001
         logger.error("API User detail error: %s", exc, exc_info=True)
         return web.json_response({"error": "Server error"}, status=500)
-
-
-def _event_payload(row: dict) -> dict[str, Any]:
-    """Admin UI uchun xavfsiz va ixcham event JSON."""
-    return {
-        "id": int(row.get("id") or 0),
-        "user_id": int(row.get("user_id") or 0),
-        "chat_id": row.get("chat_id"),
-        "chat_title": row.get("chat_title") or "",
-        "event_type": row.get("event_type") or "",
-        "message_id": row.get("message_id"),
-        "details": str(row.get("details") or "")[:4000],
-        "sender_id": row.get("sender_id"),
-        "business_connection_id": row.get("business_connection_id") or "",
-        "occurred_at": row.get("occurred_at"),
-    }
 
 
 async def api_send_user_message(request: web.Request) -> web.Response:

@@ -1163,27 +1163,8 @@ if (retentionSave) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared event rendering for user activity
+// Date formatting for user profiles
 // ---------------------------------------------------------------------------
-function eventVisualType(type) {
-    const value = String(type || "").toLowerCase();
-    if (value === "delete" || value === "delete_media") return "delete";
-    if (value === "edit") return "edit";
-    if (["sticker", "photo", "video", "animation", "voice", "video_note", "audio", "document"].includes(value)) return "media";
-    return "message";
-}
-
-function eventLabel(type) {
-    const labels = {
-        text: "Matn", edit: "Tahrirlangan", delete: "O‘chirilgan",
-        delete_media: "O‘chirilgan media", photo: "Rasm", video: "Video",
-        animation: "GIF", sticker: "Stiker", voice: "Ovozli xabar",
-        video_note: "Video xabar", audio: "Audio", document: "Fayl",
-        connection: "Ulanish",
-    };
-    return labels[String(type || "")] || String(type || "Hodisa");
-}
-
 function formatDateTime(value) {
     if (!value) return "-";
     const raw = String(value);
@@ -1198,25 +1179,6 @@ function formatDateTime(value) {
     } catch (e) {
         return raw.replace("T", " ").slice(0, 19);
     }
-}
-
-function renderEventElement(row) {
-    const card = document.createElement("article");
-    card.className = "message-card";
-    const visual = eventVisualType(row.event_type);
-    const icon = visual === "delete" ? "DEL" : visual === "edit" ? "EDIT" : visual === "media" ? "MED" : "MSG";
-    const details = String(row.details || "").trim() || "Tafsilot yo‘q";
-    card.innerHTML = `
-        <div class="event-icon ${visual}">${icon}</div>
-        <div class="event-body">
-            <div class="event-head">
-                <b>${escapeHtml(eventLabel(row.event_type))}</b>
-                <time>${escapeHtml(formatDateTime(row.occurred_at))}</time>
-            </div>
-            <div class="event-meta">User: ${escapeHtml(row.user_id || "-")}${row.message_id ? ` · Msg: ${escapeHtml(row.message_id)}` : ""}${row.chat_title ? ` · ${escapeHtml(row.chat_title)}` : ""}</div>
-            <div class="event-details">${escapeHtml(details)}</div>
-        </div>`;
-    return card;
 }
 
 // ---------------------------------------------------------------------------
@@ -1247,17 +1209,6 @@ document.querySelectorAll(".detail-tab").forEach((button) => {
 function setText(id, value) {
     const el = document.getElementById(id);
     if (el) el.textContent = value == null || value === "" ? "-" : String(value);
-}
-
-function renderSheetEvents(events) {
-    const list = document.getElementById("sheet-events");
-    if (!list) return;
-    list.innerHTML = "";
-    if (!events || !events.length) {
-        list.innerHTML = '<div class="empty-state">Faollik topilmadi.</div>';
-        return;
-    }
-    events.forEach((row) => list.appendChild(renderEventElement(row)));
 }
 
 async function openUserDetail(userId) {
@@ -1295,7 +1246,6 @@ async function openUserDetail(userId) {
             status.className = `status-badge ${user.banned ? "status-disabled" : user.connected ? "status-enabled" : "status-neutral"}`;
             status.textContent = user.banned ? "BLOKLANGAN" : user.connected ? "ULANGAN" : "ULANMAGAN";
         }
-        renderSheetEvents(user.events || []);
         const ban = document.getElementById("sheet-ban");
         const del = document.getElementById("sheet-delete");
         if (ban) {
