@@ -36,12 +36,34 @@ E_MISSED = EMOJI.missed
 # /start – asosiy menyu
 # ---------------------------------------------------------------------------
 WELCOME = (
-    f"{EMOJI.welcome.tag} <b>Assalomu alaykum! </b>\n\n"
-    "Men sizning shaxsiy faoliyat-nazorat botingizman.\n"
-    "Meni Telegram akkauntingizga ulang — suhbatdoshingiz yuborgan xabarlar "
-    "tahrirlanganda yoki o'chirilganda darhol xabar beraman (matn, stiker, "
-    "rasm, video, GIF, ovozli xabar, musiqa, fayl va dumaloq video).\n\n"
+    f"{EMOJI.ok.tag} <b>Xush kelibsiz!</b>\n\n"
+    f"{EMOJI.report_user.tag} Men suhbatdoshlaringizning <b>o‘chirilgan va "
+    "tahrirlangan xabarlaridan</b> sizni xabardor qilib turaman — "
+    "hatto siz Telegramga kirmagan paytingizda ham.\n\n"
+    f"{EMOJI.inbox.tag} <b>Bir martalik (View Once)</b> rasm, video yoki "
+    "aylana videoga <b>«?» deb reply</b> qilsangiz, uni shaxsiy bot "
+    "chatingizga saqlab beraman.\n\n"
+    f"{EMOJI.info.tag} Faqat <b>sizning ruxsatingiz bilan</b> ishlayman.\n\n"
+    "<b>Botni ulash:</b>\n"
+    "<blockquote>1. <b>Ulanish</b> tugmasini bosing.\n"
+    "2. <b>Telegram Business → Chatbotlar</b> bo‘limini oching va "
+    "<b>@solutionteamrobot</b> ni qo‘shing.\n"
+    f"3. Kerakli chatlar va ruxsatlarni tanlab, <b>Qo‘shish</b>ni bosing "
+    f"— tayyor {EMOJI.ok.tag}</blockquote>"
 )
+
+
+def start_message(connected: bool | None) -> str:
+    """Welcome screen with the connection status actually read from storage."""
+    if connected is None:
+        status = f"{EMOJI.paused_dot.tag} <b>Holat:</b> Hozir tekshirib bo‘lmadi"
+    elif connected:
+        status = f"{EMOJI.online_dot.tag} <b>Holat:</b> Ulangan"
+    else:
+        status = f"{EMOJI.offline_dot.tag} <b>Holat:</b> Ulanmagan"
+    return f"{WELCOME}\n\n{status}"
+
+
 MENU_HINT = f"Quyidagi amallardan birini tanlang {EMOJI.menu_hint.tag}"
 
 # /start bosilganda, foydalanuvchi ALLAQACHON ulangan bo'lsa.

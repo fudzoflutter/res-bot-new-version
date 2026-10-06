@@ -155,8 +155,8 @@ class EmojiConfig:
     # FAOL: View Once aylana video
     # FAOL: view_once_video_note
     view_once_video_note: EmojiEntry = field(default_factory=lambda: EmojiEntry("5328108441963604719", "📹"))
-    # FAOL: Salomlashish
-    # FAOL: welcome
+    # ZAXIRA: /start salomlashishida hozir mavjud ok Premium emojisi ishlatiladi.
+    # ZAXIRA — hozir chaqirilmaydi: welcome
     welcome: EmojiEntry = field(default_factory=lambda: EmojiEntry("", "👋"))
     # FAOL: Menyu yo‘riqnomasi
     # FAOL: menu_hint

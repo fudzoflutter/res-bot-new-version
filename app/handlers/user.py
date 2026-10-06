@@ -46,35 +46,20 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     """Kirish nuqtasi: to'g'ridan-to'g'ri menyu."""
     await state.clear()
 
-    # Admin: chat menyusi o'rniga Web Mini App tugmasi.
-    if message.from_user and admin_roles.is_admin(message.from_user.id):
-        await message.answer(ADMIN_PANEL_TEXT, reply_markup=user_kb.admin_panel_menu())
-        return
-
     try:
         is_connected = await db.has_active_connection(message.from_user.id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cmd_start DB xatosi: %s", exc)
+        is_connected = None
 
-        if is_connected:
-            await message.answer(
-                texts.ALREADY_CONNECTED,
-                reply_markup=user_kb.main_menu(connected=True),
-                disable_web_page_preview=True,
-            )
-            return
-
-        await message.answer(
-            f"{texts.WELCOME}\n\n{texts.MENU_HINT}",
-            reply_markup=user_kb.main_menu(connected=False),
-            disable_web_page_preview=True,
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("cmd_start DB xatosi: %s", e)
-        await message.answer(
-            texts.WELCOME + "\n\n" + texts.MENU_HINT,
-            reply_markup=user_kb.main_menu(connected=False),
-            disable_web_page_preview=True,
-        )
-
+    is_admin = message.from_user and admin_roles.is_admin(message.from_user.id)
+    markup = user_kb.main_menu(connected=bool(is_connected))
+    if is_admin:
+        markup.inline_keyboard.extend(user_kb.admin_panel_menu().inline_keyboard)
+    await message.answer(
+        texts.start_message(is_connected), reply_markup=markup,
+        parse_mode="HTML", disable_web_page_preview=True,
+    )
 
 @router.callback_query(F.data == user_kb.CB_BACK_MENU)
 async def back_to_menu(cb: CallbackQuery, state: FSMContext) -> None:
@@ -90,8 +75,9 @@ async def back_to_menu(cb: CallbackQuery, state: FSMContext) -> None:
 
     connected = await db.has_active_connection(cb.from_user.id)
     await cb.message.edit_text(
-        f"{texts.WELCOME}\n\n{texts.MENU_HINT}",
+        texts.start_message(connected),
         reply_markup=user_kb.main_menu(connected=connected),
+        parse_mode="HTML",
     )
 
 
