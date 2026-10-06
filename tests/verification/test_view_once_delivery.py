@@ -60,12 +60,16 @@ def test_view_once_rejects_outsider_disabled_and_duplicate(monkeypatch, sender, 
     database.set_setting.assert_not_called()
 
 
-def test_invalid_reference_uses_upload_fallback(monkeypatch):
+@pytest.mark.parametrize("reason", [
+    "wrong file identifier",
+    "can't use file of type SelfDestructingPhoto as Photo",
+])
+def test_invalid_reference_uses_upload_fallback(monkeypatch, reason):
     database = setup_db(monkeypatch)
     bot = AsyncMock()
     bot.send_photo.side_effect = [TelegramBadRequest(
         method=SendPhoto(chat_id=222, photo="stored-media"),
-        message="wrong file identifier",
+        message=reason,
     ), None]
     bot.get_file.return_value = SimpleNamespace(file_path="photos/photo.jpg")
     bot.download_file.return_value = io.BytesIO(b"photo-content")

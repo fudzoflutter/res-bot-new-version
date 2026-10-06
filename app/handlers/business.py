@@ -31,6 +31,7 @@ Har bir hodisa DBga (statistika + activity log) va adminga xabar qilinadi.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -282,6 +283,7 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
 
     # Xavfsizlik: suhbatdosh "?" yuborsa uning mediasini ownerga ko'chirmaymiz.
     # Trigger faqat business connection egasining o'z xabari bo'lishi shart.
+    started = time.monotonic()
     conn = await db.get_connection(connection_id)
     if not conn or not conn.get("is_enabled"):
         logger.warning("View Once: faol connection topilmadi (%s)", connection_id)
@@ -328,6 +330,8 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
                 destination, media_input,
             ))
 
+    lookup_ms = int((time.monotonic() - started) * 1000)
+    delivery_started = time.monotonic()
     delivery = "file_id"
     try:
         try:
@@ -339,8 +343,12 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
             if not any(marker in reason for marker in (
                 "wrong file identifier", "invalid file id", "file_id_invalid",
                 "file_reference_expired", "file reference expired", "file not found",
+                "can't use file of type selfdestructingphoto as photo",
+                "can't use file of type selfdestructingvideo as video",
+                "can't use file of type selfdestructingvideonote as videonote",
             )):
                 raise
+            logger.info("View Once file_id rejected: type=%s reason=%s", media_type, exc.message)
             delivery = "upload"
             tg_file = await tg_call("view_once_get_file", lambda: bot.get_file(file_id))
             if not tg_file.file_path:
@@ -356,15 +364,19 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
                 suffix = ".jpg" if media_type == "photo" else ".mp4"
             await send_media(BufferedInputFile(raw, filename=f"view_once{suffix}"))
 
+        send_ms = int((time.monotonic() - delivery_started) * 1000)
         await db.set_setting(dedupe_key, "1")
         logger.info(
-            "View Once saved: conn=%s chat=%s trigger=%s target=%s type=%s delivery=%s",
+            "View Once saved: conn=%s chat=%s trigger=%s target=%s type=%s delivery=%s lookup_ms=%s send_ms=%s total_ms=%s",
             connection_id,
             message.chat.id,
             message.message_id,
             target.message_id,
             media_type,
             delivery,
+            lookup_ms,
+            send_ms,
+            int((time.monotonic() - started) * 1000),
         )
     except Exception:  # noqa: BLE001 – monitoring bot ishlashda davom etsin
         logger.exception(
