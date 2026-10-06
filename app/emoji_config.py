@@ -148,13 +148,13 @@ class EmojiConfig:
     # YANGI EMOJILAR — FAOL; bo‘sh IDlarni Premium ID bilan almashtiring.
     # FAOL: View Once rasm
     # FAOL: view_once_photo
-    view_once_photo: EmojiEntry = field(default_factory=lambda: EmojiEntry("", "🖼"))
+    view_once_photo: EmojiEntry = field(default_factory=lambda: EmojiEntry("5222038117145392675", "🖼"))
     # FAOL: View Once video
     # FAOL: view_once_video
-    view_once_video: EmojiEntry = field(default_factory=lambda: EmojiEntry("", "🎬"))
+    view_once_video: EmojiEntry = field(default_factory=lambda: EmojiEntry("5463200135678796607", "🎬"))
     # FAOL: View Once aylana video
     # FAOL: view_once_video_note
-    view_once_video_note: EmojiEntry = field(default_factory=lambda: EmojiEntry("", "📹"))
+    view_once_video_note: EmojiEntry = field(default_factory=lambda: EmojiEntry("5328108441963604719", "📹"))
     # FAOL: Salomlashish
     # FAOL: welcome
     welcome: EmojiEntry = field(default_factory=lambda: EmojiEntry("", "👋"))
