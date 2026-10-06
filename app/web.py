@@ -33,6 +33,10 @@ import json
 import logging
 import os
 import time
+import tempfile
+from pathlib import Path
+
+from aiogram.types import FSInputFile
 from typing import Any, Optional
 from urllib.parse import parse_qsl
 
@@ -524,15 +528,83 @@ async def api_broadcast_preview(request: web.Request) -> web.Response:
     return web.json_response(payload, headers=_NO_CACHE)
 
 
+def _test_send_error(exc):
+    reason = str(exc).lower()
+    if "wrong type of the web page content" in reason:
+        return "Havola rasm/video fayliga olib bormayapti. Mahalliy fayl tanlang yoki bevosita media havolasini kiriting."
+    if "can't initiate conversation" in reason:
+        return "Oluvchi avval botga /start bosishi kerak."
+    if "blocked by the user" in reason:
+        return "Oluvchi botni bloklagan."
+    return f"Test yuborilmadi: {type(exc).__name__}"
+
+
+async def _read_test_ad(request):
+    if getattr(request, "content_type", "application/json") != "multipart/form-data":
+        data, error = await _read_json(request)
+        return data, None, error
+    path = None
+    data = None
+    try:
+        reader = await request.multipart()
+        while part := await reader.next():
+            if part.name == "payload":
+                raw = bytearray()
+                while chunk := await part.read_chunk():
+                    raw.extend(chunk)
+                    if len(raw) > 65536:
+                        raise ValueError("Reklama matni juda katta.")
+                data = json.loads(raw)
+                if not isinstance(data, dict):
+                    raise ValueError("So‘rov formati noto‘g‘ri.")
+            elif part.name == "media" and part.filename:
+                if path:
+                    raise ValueError("Faqat bitta media tanlang.")
+                content_type = part.headers.get("Content-Type", "")
+                if content_type not in {"image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/quicktime", "video/webm"}:
+                    raise ValueError("Rasm, GIF yoki video tanlang.")
+                suffix = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm"}[content_type]
+                limit = (10 if content_type.startswith("image/") and content_type != "image/gif" else 50) * 1024 * 1024
+                size = 0
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as output:
+                    path = output.name
+                    while chunk := await part.read_chunk():
+                        size += len(chunk)
+                        if size > limit:
+                            raise ValueError("Rasm 10 MB, video/GIF 50 MB dan oshmasin.")
+                        output.write(chunk)
+                if not size:
+                    raise ValueError("Fayl bo‘sh.")
+                kind = "animation" if content_type == "image/gif" else ("photo" if content_type.startswith("image/") else "video")
+        if not path or data is None:
+            raise ValueError("Fayl va reklama ma’lumotlari kerak.")
+        data.update(media_url="", media_file_id="uploaded_local_media", media_type=kind)
+        return data, path, None
+    except BaseException as exc:
+        if path:
+            Path(path).unlink(missing_ok=True)
+        if not isinstance(exc, Exception):
+            raise
+        message = str(exc) if isinstance(exc, ValueError) else "Faylni yuklash tugamadi. Qayta urinib ko‘ring."
+        return None, None, web.json_response({"error": message}, status=400, headers=_NO_CACHE)
+
+
 async def api_broadcast_test(request: web.Request) -> web.Response:
     """TEST yuborish — FAQAT bitta oluvchiga (broadcast boshlanmaydi)."""
     identity, error = _authorize_permission(request, perms.P_BROADCAST_USE)
     if error is not None:
         return error
-    data, error = await _read_json(request)
+    data, upload_path, error = await _read_test_ad(request)
     if error is not None:
         return error
-    assert data is not None
+    try:
+        return await _send_test_ad(request, identity, data, upload_path)
+    finally:
+        if upload_path:
+            Path(upload_path).unlink(missing_ok=True)
+
+
+async def _send_test_ad(request, identity, data, upload_path):
     try:
         ad = broadcast_engine.build_ad(data)
     except AdError as exc:
@@ -550,11 +622,16 @@ async def api_broadcast_test(request: web.Request) -> web.Response:
     if bot is None:
         return web.json_response({"error": "Bot instance not available"}, status=503)
     try:
-        await broadcast_engine.test_send(bot, ad, target_id)
+        if upload_path:
+            sent = await broadcast_engine.send_one(bot, target_id, ad, FSInputFile(upload_path))
+        else:
+            sent = await broadcast_engine.test_send(bot, ad, target_id)
+        media = (getattr(sent, "photo", None)[-1] if getattr(sent, "photo", None) else None) if ad.media_type == "photo" else getattr(sent, ad.media_type, None)
+        media_file_id = getattr(media, "file_id", "") if ad.has_media else ""
     except Exception as exc:  # noqa: BLE001
         logger.warning("Test yuborish xatosi (target=%s): %s", target_id, exc)
         return web.json_response(
-            {"error": f"Test yuborilmadi: {type(exc).__name__}"}, status=502
+            {"error": _test_send_error(exc)}, status=502
         )
     await audit.log_action(
         "broadcast_test_sent",
@@ -565,7 +642,7 @@ async def api_broadcast_test(request: web.Request) -> web.Response:
     )
     # MUHIM: test yuborish broadcast statistikasiga TA'SIR QILMAYDI.
     return web.json_response(
-        {"ok": True, "target": target_id, "status": broadcast_snapshot()},
+        {"ok": True, "target": target_id, "media_file_id": media_file_id, "status": broadcast_snapshot()},
         headers=_NO_CACHE,
     )
 
@@ -1271,7 +1348,7 @@ async def readiness(request: web.Request) -> web.Response:  # noqa: ARG001
 # Serverni ishga tushirish
 # ---------------------------------------------------------------------------
 async def start_web_server(bot=None):  # noqa: ANN201
-    app = web.Application()
+    app = web.Application(client_max_size=52 * 1024 * 1024)
     app["bot"] = bot
 
     # Healthcheck/readiness — eng birinchi, autentifikatsiyasiz.

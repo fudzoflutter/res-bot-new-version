@@ -105,7 +105,8 @@ class Ad:
     def to_dict(self) -> dict[str, Any]:
         return {
             "caption": self.caption,
-            "media_url": self.media_url,
+            "media_url": self.media_url if self.media_url.lower().startswith(("http://", "https://")) else "",
+            "media_file_id": self.media_url if not self.media_url.lower().startswith(("http://", "https://")) else "",
             "media_type": self.media_type,
             "buttons": [
                 {"text": b.text, "url": b.url, "style": b.style} for b in self.buttons
@@ -203,8 +204,12 @@ def build_ad(payload: dict[str, Any]) -> Ad:
     media_url = str(
         payload.get("media_url") or payload.get("media") or payload.get("photo") or ""
     ).strip()
+    file_id = str(payload.get("media_file_id") or "").strip()
+    if file_id and not re.fullmatch(r"[A-Za-z0-9_-]{10,512}", file_id):
+        raise AdError("Media file_id noto‘g‘ri.")
     if media_url and not media_url.lower().startswith(("http://", "https://")):
         raise AdError("Media URL http(s):// bilan boshlanishi kerak.")
+    media_url = file_id or media_url
     if not caption and not media_url:
         raise AdError("Matn (caption) yoki media URL bo'lishi shart.")
     max_caption = 1024 if media_url else 4096
@@ -411,29 +416,34 @@ async def recover_state() -> bool:
 # ---------------------------------------------------------------------------
 # Yuborish
 # ---------------------------------------------------------------------------
-async def send_one(bot, user_id: int, ad: Ad) -> None:  # noqa: ANN001
+async def send_one(bot, user_id: int, ad: Ad, media_input=None):  # noqa: ANN001
     """Bitta foydalanuvchiga yuboradi (429/network — retry bilan)."""
     markup = build_markup(ad)
+    media = media_input if media_input is not None else ad.media_url
     if not ad.has_media:
         factory = lambda: bot.send_message(  # noqa: E731
             user_id, ad.caption, parse_mode="HTML", reply_markup=markup,
+            request_timeout=180 if media_input is not None else 60,
         )
     elif ad.media_type == MEDIA_VIDEO:
         factory = lambda: bot.send_video(  # noqa: E731
-            user_id, video=ad.media_url, caption=ad.caption or None,
+            user_id, video=media, caption=ad.caption or None,
             parse_mode="HTML", reply_markup=markup,
+            request_timeout=180 if media_input is not None else 60,
         )
     elif ad.media_type == MEDIA_ANIMATION:
         factory = lambda: bot.send_animation(  # noqa: E731
-            user_id, animation=ad.media_url, caption=ad.caption or None,
+            user_id, animation=media, caption=ad.caption or None,
             parse_mode="HTML", reply_markup=markup,
+            request_timeout=180 if media_input is not None else 60,
         )
     else:
         factory = lambda: bot.send_photo(  # noqa: E731
-            user_id, photo=ad.media_url, caption=ad.caption or None,
+            user_id, photo=media, caption=ad.caption or None,
             parse_mode="HTML", reply_markup=markup,
+            request_timeout=180 if media_input is not None else 60,
         )
-    await tg_call("broadcast_send", factory, attempts=3)
+    return await tg_call("broadcast_send", factory, attempts=3, timeout=180 if media_input is not None else 60)
 
 
 async def test_send(bot, ad: Ad, target_id: int) -> None:  # noqa: ANN001
@@ -442,7 +452,7 @@ async def test_send(bot, ad: Ad, target_id: int) -> None:  # noqa: ANN001
     Broadcast HOLATIGA, hisoblagichlariga va ``broadcast_recipients``
     jadvaliga TA'SIR QILMAYDI.
     """
-    await send_one(bot, int(target_id), ad)
+    return await send_one(bot, int(target_id), ad)
 
 
 # ---------------------------------------------------------------------------

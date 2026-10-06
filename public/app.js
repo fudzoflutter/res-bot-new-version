@@ -107,7 +107,7 @@ async function apiFetch(path, options) {
         throw new Error("Telegram initData topilmadi. Panelni Telegram ichidan oching.");
     }
     const opts = Object.assign({ headers: authHeaders() }, options || {});
-    if (opts.body && !opts.headers["Content-Type"]) {
+    if (opts.body && !(opts.body instanceof FormData) && !opts.headers["Content-Type"]) {
         opts.headers["Content-Type"] = "application/json";
     }
     const response = await fetch(`${API_URL}${path}`, opts);
@@ -725,11 +725,27 @@ function collectButtons() {
     })).filter((b) => b.text || b.url);
 }
 
+const broadcastFile = document.getElementById("broadcast-file");
+let uploadedMediaId = "";
+broadcastFile?.addEventListener("change", () => {
+    uploadedMediaId = "";
+    const file = broadcastFile.files[0];
+    if (file) {
+        document.getElementById("broadcast-media").value = "";
+        document.getElementById("broadcast-media-type").value = file.type === "image/gif" ? "animation" : file.type.startsWith("image/") ? "photo" : "video";
+    }
+});
+document.getElementById("broadcast-media")?.addEventListener("input", () => {
+    if (broadcastFile) broadcastFile.value = "";
+    uploadedMediaId = "";
+});
+
 function adPayload() {
     return {
         caption: document.getElementById("broadcast-text")?.value.trim() || "",
-        media_url: document.getElementById("broadcast-media")?.value.trim() || "",
-        media_type: document.getElementById("broadcast-media-type")?.value || "",
+        media_url: broadcastFile?.files[0] ? (uploadedMediaId ? "" : "https://local.invalid/" + encodeURIComponent(broadcastFile.files[0].name)) : document.getElementById("broadcast-media")?.value.trim() || "",
+        media_file_id: uploadedMediaId,
+        media_type: broadcastFile?.files[0] ? (broadcastFile.files[0].type === "image/gif" ? "animation" : broadcastFile.files[0].type.startsWith("image/") ? "photo" : "video") : document.getElementById("broadcast-media-type")?.value || "",
         buttons: collectButtons(),
     };
 }
@@ -841,10 +857,17 @@ if (testBtn) {
         }
         testBtn.disabled = true;
         try {
-            const data = await apiFetch("/broadcast/test", {
-                method: "POST",
-                body: JSON.stringify(payload),
-            });
+            const file = broadcastFile?.files[0];
+            let body = JSON.stringify(payload);
+            if (file && !uploadedMediaId) {
+                const limit = payload.media_type === "photo" ? 10 : 50;
+                if (file.size > limit * 1024 * 1024) throw new Error(`Fayl ${limit} MB dan oshmasin.`);
+                body = new FormData();
+                body.append("payload", JSON.stringify(payload));
+                body.append("media", file);
+            }
+            const data = await apiFetch("/broadcast/test", { method: "POST", body });
+            if (file === broadcastFile?.files[0] && data.media_file_id) uploadedMediaId = data.media_file_id;
             haptic("success");
             notify(`✅ Test yuborildi (ID ${data.target}). Broadcast boshlanmadi.`);
         } catch (e) {
@@ -871,7 +894,11 @@ if (broadcastBtn) {
     broadcastBtn.addEventListener("click", async () => {
         if (_broadcastActionPending || _broadcastRunning || broadcastBtn.disabled) return;
         const payload = adPayload();
-        if (!payload.caption && !payload.media_url) {
+        if (broadcastFile?.files[0] && !uploadedMediaId) {
+            notify("Tanlangan faylni avval «Sinab ko‘rish» orqali yuboring.");
+            return;
+        }
+        if (!payload.caption && !payload.media_url && !payload.media_file_id) {
             notify("Matn yoki media havolasi bo'lishi shart.");
             return;
         }
