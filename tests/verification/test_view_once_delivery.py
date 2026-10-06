@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import SendPhoto
+from aiogram.methods import SendPhoto, SendVideoNote
 
 from app.handlers import business
 from app.emoji_config import EmojiEntry
@@ -154,3 +154,24 @@ def test_cross_saving_requires_two_full_admins(monkeypatch, owner_role, sender_r
     asyncio.run(business._save_replied_view_once(trigger("photo", sender=999), bot))
     bot.send_photo.assert_not_called()
     database.set_setting.assert_not_called()
+
+
+def test_expired_video_note_with_privacy_rejection_becomes_normal_video(monkeypatch):
+    database = setup_db(monkeypatch)
+    bot = AsyncMock()
+    method = SendVideoNote(chat_id=222, video_note="stored-media")
+    bot.send_video_note.side_effect = [
+        TelegramBadRequest(method=method, message="FILE_REFERENCE_EXPIRED"),
+        TelegramBadRequest(method=method, message="VOICE_MESSAGES_FORBIDDEN"),
+    ]
+    bot.get_file.return_value = SimpleNamespace(file_path="video/note.mp4")
+    bot.download_file.return_value = io.BytesIO(b"original-video-with-audio")
+    asyncio.run(business._save_replied_view_once(trigger("video_note"), bot))
+    bot.send_video.assert_awaited_once()
+    uploaded = bot.send_video.await_args.args[1]
+    assert uploaded.data == b"original-video-with-audio"
+    assert uploaded.filename.endswith(".mp4")
+    assert "Aylana video saqlandi" in bot.send_video.await_args.kwargs["caption"]
+    bot.send_document.assert_not_called()
+    bot.send_message.assert_not_called()
+    database.set_setting.assert_awaited_once()

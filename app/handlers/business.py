@@ -331,7 +331,10 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
     }[media_type]
     saved_text = f"{emoji.tag} <b>{media_name} saqlandi</b> · View Once"
 
+    sent_as_video = False
+
     async def send_media(media_input):
+        nonlocal sent_as_video
         # No business_connection_id: send only to the connection owner's bot chat.
         if media_type == "photo":
             return await tg_call("view_once_photo", lambda: bot.send_photo(
@@ -343,9 +346,21 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
                 supports_streaming=True,
             ))
         else:
-            return await tg_call("view_once_video_note", lambda: bot.send_video_note(
-                destination, media_input,
-            ))
+            try:
+                return await tg_call("view_once_video_note", lambda: bot.send_video_note(
+                    destination, media_input,
+                ))
+            except TelegramBadRequest as exc:
+                if "VOICE_MESSAGES_FORBIDDEN" not in exc.message.upper():
+                    raise
+                # Recipient privacy may reject video notes but accept ordinary video.
+                # Reuse the same bytes/reference; never turn media into a .bin document.
+                result = await tg_call("view_once_video_fallback", lambda: bot.send_video(
+                    destination, media_input, caption=saved_text,
+                    parse_mode="HTML", supports_streaming=True,
+                ))
+                sent_as_video = True
+                return result
 
     lookup_ms = int((time.monotonic() - started) * 1000)
     delivery_started = time.monotonic()
@@ -383,7 +398,7 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
 
         send_ms = int((time.monotonic() - delivery_started) * 1000)
         await db.set_setting(dedupe_key, "1")
-        if media_type == "video_note":
+        if media_type == "video_note" and not sent_as_video:
             # Video notes have no caption. Keep the receipt linked to the saved media.
             # Failure of the receipt must never resend the already delivered video.
             try:
@@ -396,13 +411,14 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
             except Exception:
                 logger.exception("View Once receipt failed: conn=%s", connection_id)
         logger.info(
-            "View Once saved: conn=%s chat=%s trigger=%s target=%s type=%s delivery=%s lookup_ms=%s send_ms=%s total_ms=%s",
+            "View Once saved: conn=%s chat=%s trigger=%s target=%s type=%s delivery=%s shape=%s lookup_ms=%s send_ms=%s total_ms=%s",
             connection_id,
             message.chat.id,
             message.message_id,
             target.message_id,
             media_type,
             delivery,
+            "video" if sent_as_video else media_type,
             lookup_ms,
             send_ms,
             int((time.monotonic() - started) * 1000),
