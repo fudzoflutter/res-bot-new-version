@@ -186,35 +186,8 @@ FILE_NAMES = {
 }
 DEFAULT_FILE_NAME = "file.bin"
 
-# "OVOZLI XABAR" MAXFIYLIGI (qabul qiluvchining Telegram sozlamasi).
-#
-# Jonli tekshiruv (haqiqiy Telegram bilan) shuni ko'rsatdi: qabul qiluvchida
-# "Ovozli xabarlar" maxfiylik sozlamasi tor bo'lsa, Telegram shu OVOZNI
-# tanigan HAR QANDAY ko'rinishni rad etadi:
-#     send_voice    -> VOICE_MESSAGES_FORBIDDEN
-#     send_audio    -> VOICE_MESSAGES_FORBIDDEN
-#     send_document(.oga/.ogg/.opus) -> VOICE_MESSAGES_FORBIDDEN
-# ya'ni bitta ham shakl o'tmaydi.  Telegram turini FAYL NOMI bo'yicha
-# aniqlaydi: neytral kengaytmali fayl (.bin) esa O'TADI — shuning uchun oxirgi
-# chora shu (kontent o'zgarmaydi, faqat nomi audio deb tanilmaydi).
-# Dumaloq video esa oddiy VIDEO sifatida bemalol ketadi (tekshirilgan).
+# Telegram recipient privacy can reject voice messages; never disguise them as documents.
 VOICE_PRIVACY_MARKER = "VOICE_MESSAGES_FORBIDDEN"
-VOICE_BLOCKED_FILE_NAME = "voice.bin"
-
-# Bu maslahat (qaysi sozlamani ochish kerak) bir soatda ko'pi bilan bir marta
-# qo'shiladi — har bir bloklangan ovoz uchun takrorlanib shovqin qilmasin.
-VOICE_HINT_INTERVAL = 3600.0
-_last_voice_hint = 0.0
-
-
-def _voice_hint_due() -> bool:
-    """Sozlama haqidagi maslahatni hozir qo'shish kerakmi?"""
-    global _last_voice_hint
-    now = time.monotonic()
-    if _last_voice_hint and now - _last_voice_hint < VOICE_HINT_INTERVAL:
-        return False
-    _last_voice_hint = now
-    return True
 
 
 # ---------------------------------------------------------------------------
@@ -929,6 +902,8 @@ class Reporter:
                     body = REPORT_DELETED_MEDIA.format(kind=label, who=who, mid=mid)
                     if reason:
                         body += REPORT_RESEND_FAILED.format(reason=esc(reason))
+                        if event_type == EVENT_VOICE and VOICE_PRIVACY_MARKER in reason:
+                            body += REPORT_VOICE_SETTING_HINT
                     await self._send(
                         self._owner_chat,
                         body + self._footer(chat_title, deleted_at=deleted_hms),
@@ -1303,6 +1278,9 @@ class Reporter:
                 exc_info=True,
             )
 
+        if event_type == EVENT_VOICE and VOICE_PRIVACY_MARKER in reason:
+            return False, reason
+
         # 2) Zaxira yo'l: faylni yuklab, FAYL sifatida yuboramiz.
         #    "Ovozli xabar" va "dumaloq video" ko'rinishini Telegram qabul
         #    qiluvchining sozlamasiga qarab rad etishi mumkin — oddiy fayl
@@ -1314,11 +1292,8 @@ class Reporter:
         #    :mod:`app.utils.telegram_api` dagi umumiy CONCURRENCY limit bilan
         #    cheklanadi (bir nechta katta video birga o'chirilsa ham server
         #    ostidan ketmaydi).
-        cap += REPORT_RESEND_FILE_FORM.format(reason=esc(reason))
-        if VOICE_PRIVACY_MARKER in reason and _voice_hint_due():
-            # Sabab foydalanuvchining O'Z Telegram sozlamasi — qaysi birini
-            # ochish kerakligini aytib qo'yamiz (bir soatda bir marta).
-            cap += REPORT_VOICE_SETTING_HINT
+        if event_type != EVENT_VOICE:
+            cap += REPORT_RESEND_FILE_FORM.format(reason=esc(reason))
         temp_path: Optional[str] = None
         try:
             data, temp_path, too_large = await self._fetch_media(file_id)
@@ -1340,7 +1315,8 @@ class Reporter:
                 self._reason_of(exc),
                 exc_info=True,
             )
-            return False, reason
+            fallback_reason = self._reason_of(exc)
+            return False, fallback_reason
         finally:
             # CLEANUP: vaqtincha fayl HAR QANDAY holatda o'chiriladi.
             if temp_path:
@@ -1491,27 +1467,14 @@ class Reporter:
         temp_path: Optional[str] = None,
         file_name: Optional[str] = None,
     ) -> None:
-        """Baytlarni FAYL ko'rinishida yuboradi (asl ko'rinish rad etilganda).
-
-        Ovozli xabar -> audio (ijro etiladi), dumaloq video -> video, musiqa va
-        fayl -> document (ASL nomi bilan).  Har bir qadam xato bersa, eng oxirgi
-        chora document.
-
-        ``reason`` — Telegram bergan rad javobi.  Unda ovozli-xabar maxfiyligi
-        (VOICE_MESSAGES_FORBIDDEN) bo'lsa, audio ko'rinishlarini umuman
-        sinab o'tirmaymiz (ular baribir rad etiladi) — to'g'ridan-to'g'ri
-        neytral nomli fayl yuboriladi.
-        """
-        muted = bool(reason) and VOICE_PRIVACY_MARKER in reason
-        # Musiqa/fayl uchun ASL nom saqlangan bo'lsa — o'shani ishlatamiz
-        # (foydalanuvchi faylni taniy olsin).  Yo'ldan chiqish belgilarisiz.
+        """Retry voice uploads as voice; other media retain their file fallback."""
         name = (
             os.path.basename(file_name)
             if file_name
             else FILE_NAMES.get(event_type, DEFAULT_FILE_NAME)
         )
-        if muted and event_type == EVENT_VOICE:
-            name = VOICE_BLOCKED_FILE_NAME
+        if event_type == EVENT_VOICE:
+            name = "voice.ogg"
 
         def upload() -> Any:
             # Har bir urinish uchun YANGI obyekt (oqim qayta ishlatilmaydi).
@@ -1519,17 +1482,14 @@ class Reporter:
                 return FSInputFile(temp_path, filename=name)
             return BufferedInputFile(data or b"", filename=name)
 
-        if event_type == EVENT_VOICE and not muted:
-            try:
-                await tg_call(
-                    "send_audio",
-                    lambda: self.bot.send_audio(
-                        chat_id, audio=upload(), caption=cap, parse_mode="HTML"
-                    ),
-                )
-                return
-            except Exception:  # noqa: BLE001
-                logger.info("Audio sifatida ham yuborilmadi — document")
+        if event_type == EVENT_VOICE:
+            await tg_call(
+                "send_voice",
+                lambda: self.bot.send_voice(
+                    chat_id, voice=upload(), caption=cap, parse_mode="HTML"
+                ),
+            )
+            return
         elif event_type == EVENT_VIDEO_NOTE:
             # Dumaloq video oddiy VIDEO sifatida o'tadi (maxfiylik sozlamasi
             # ovozli xabarlarga tegishli, videoga emas) — tekshirilgan.
