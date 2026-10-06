@@ -265,8 +265,9 @@ def _view_once_media(message: Message) -> Optional[tuple[str, str]]:
 async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
     """Ownerning ``?`` reply triggerini permanent nusxaga aylantiradi.
 
-    Nusxa Business chatga emas, aynan shu business connection egasining
-    ``user_chat_id`` private chatiga yuboriladi.  Yuborishda ataylab
+    Nusxa Business chatga emas, ulanish egasining private bot chatiga
+    yuboriladi. Ikki OWNER/ADMIN orasidagi triggerda nusxa so‘ragan
+    adminning private bot chatiga yuboriladi.  Yuborishda ataylab
     ``business_connection_id`` berilmaydi.
 
     ``True`` — bu xabar View Once trigger sifatida tanildi (muvaffaqiyatli
@@ -284,8 +285,8 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
     if not connection_id:
         return False
 
-    # Xavfsizlik: suhbatdosh "?" yuborsa uning mediasini ownerga ko'chirmaymiz.
-    # Trigger faqat business connection egasining o'z xabari bo'lishi shart.
+    # Ordinary users can save only in their own connection.
+    # Cross-connection saving is allowed only between OWNER/ADMIN accounts.
     started = time.monotonic()
     conn = await db.get_connection(connection_id)
     if not conn or not conn.get("is_enabled"):
@@ -294,14 +295,20 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
 
     owner_id = int(conn["user_id"])
     sender_id = message.from_user.id if message.from_user else None
-    if sender_id != owner_id:
+    admin_roles_allowed = {admin_roles.ROLE_OWNER, admin_roles.ROLE_ADMIN}
+    cross_admin = (
+        sender_id is not None and sender_id != owner_id
+        and admin_roles.role_of(sender_id) in admin_roles_allowed
+        and admin_roles.role_of(owner_id) in admin_roles_allowed
+    )
+    if sender_id != owner_id and not cross_admin:
         logger.info(
             "View Once: begona ? trigger e'tiborsiz (conn=%s sender=%s owner=%s)",
             connection_id, sender_id, owner_id,
         )
         return True
 
-    destination = conn.get("user_chat_id") or conn.get("user_id")
+    destination = sender_id if cross_admin else (conn.get("user_chat_id") or conn.get("user_id"))
     if not destination:
         logger.warning("View Once: owner private chat topilmadi (%s)", connection_id)
         return True

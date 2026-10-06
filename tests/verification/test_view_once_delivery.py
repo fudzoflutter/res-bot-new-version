@@ -122,3 +122,35 @@ def test_receipt_failure_does_not_resend_saved_video(monkeypatch):
     asyncio.run(business._save_replied_view_once(trigger("video_note"), bot))
     bot.send_video_note.assert_awaited_once()
     database.set_setting.assert_awaited_once()
+
+
+@pytest.mark.parametrize("owner_role,sender_role", [
+    ("owner", "admin"), ("admin", "owner"), ("admin", "admin"),
+])
+@pytest.mark.parametrize("kind", ["photo", "video", "video_note"])
+def test_admins_save_each_others_media_to_requester_chat(monkeypatch, owner_role, sender_role, kind):
+    setup_db(monkeypatch)
+    monkeypatch.setattr(business.admin_roles, "role_of", lambda uid: {
+        111: owner_role, 999: sender_role,
+    }.get(uid))
+    bot = AsyncMock()
+    bot.send_video_note.return_value = SimpleNamespace(message_id=123)
+    asyncio.run(business._save_replied_view_once(trigger(kind, sender=999), bot))
+    assert getattr(bot, "send_" + kind).await_args.args == (999, "stored-media")
+    if kind == "video_note":
+        assert bot.send_message.await_args.args[0] == 999
+
+
+@pytest.mark.parametrize("owner_role,sender_role", [
+    (None, "admin"), ("admin", None), ("admin", "viewer"),
+    ("admin", "moderator"), ("viewer", "admin"),
+])
+def test_cross_saving_requires_two_full_admins(monkeypatch, owner_role, sender_role):
+    database = setup_db(monkeypatch)
+    monkeypatch.setattr(business.admin_roles, "role_of", lambda uid: {
+        111: owner_role, 999: sender_role,
+    }.get(uid))
+    bot = AsyncMock()
+    asyncio.run(business._save_replied_view_once(trigger("photo", sender=999), bot))
+    bot.send_photo.assert_not_called()
+    database.set_setting.assert_not_called()
