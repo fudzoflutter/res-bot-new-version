@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Optional
 
 from aiogram import Bot, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     BusinessConnection,
     BusinessMessagesDeleted,
@@ -310,43 +311,60 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
         return True
 
     media_type, file_id = media
-    try:
-        tg_file = await bot.get_file(file_id)
-        if not tg_file.file_path:
-            raise RuntimeError("Telegram file_path qaytarmadi")
-        stream = await bot.download_file(tg_file.file_path)
-        raw = stream.read()
-        if not raw:
-            raise RuntimeError("Yuklangan media bo'sh")
 
-        suffix = Path(tg_file.file_path).suffix
-        if not suffix:
-            suffix = ".jpg" if media_type == "photo" else ".mp4"
-        upload = BufferedInputFile(raw, filename=f"view_once{suffix}")
-
-        # MUHIM: bu send_* chaqiruvlarida business_connection_id YO'Q.
+    async def send_media(media_input) -> None:
+        # No business_connection_id: send only to the connection owner's bot chat.
         if media_type == "photo":
-            await bot.send_photo(destination, upload, caption="💾 View Once saqlandi")
+            await tg_call("view_once_photo", lambda: bot.send_photo(
+                destination, media_input, caption="💾 View Once saqlandi",
+            ))
         elif media_type == "video":
-            await bot.send_video(
-                destination,
-                upload,
-                caption="💾 View Once saqlandi",
+            await tg_call("view_once_video", lambda: bot.send_video(
+                destination, media_input, caption="💾 View Once saqlandi",
                 supports_streaming=True,
+            ))
+        else:
+            await tg_call("view_once_video_note", lambda: bot.send_video_note(
+                destination, media_input,
+            ))
+
+    delivery = "file_id"
+    try:
+        try:
+            # Telegram reuses its stored file. No get_file/download/upload round trip.
+            await send_media(file_id)
+        except TelegramBadRequest as exc:
+            # Retry only a rejected media reference, never an ambiguous network send.
+            reason = str(exc).lower()
+            if not any(marker in reason for marker in (
+                "wrong file identifier", "invalid file id", "file_id_invalid",
+                "file_reference_expired", "file reference expired", "file not found",
+            )):
+                raise
+            delivery = "upload"
+            tg_file = await tg_call("view_once_get_file", lambda: bot.get_file(file_id))
+            if not tg_file.file_path:
+                raise RuntimeError("Telegram file_path qaytarmadi")
+            stream = await tg_call(
+                "view_once_download", lambda: bot.download_file(tg_file.file_path),
             )
-        else:  # video_note
-            await bot.send_video_note(destination, upload)
-            await bot.send_message(destination, "💾 View Once saqlandi")
+            raw = stream.read()
+            if not raw:
+                raise RuntimeError("Yuklangan media bo'sh")
+            suffix = Path(tg_file.file_path).suffix
+            if not suffix:
+                suffix = ".jpg" if media_type == "photo" else ".mp4"
+            await send_media(BufferedInputFile(raw, filename=f"view_once{suffix}"))
 
         await db.set_setting(dedupe_key, "1")
         logger.info(
-            "View Once saved: conn=%s chat=%s trigger=%s target=%s type=%s bytes=%s",
+            "View Once saved: conn=%s chat=%s trigger=%s target=%s type=%s delivery=%s",
             connection_id,
             message.chat.id,
             message.message_id,
             target.message_id,
             media_type,
-            len(raw),
+            delivery,
         )
     except Exception:  # noqa: BLE001 – monitoring bot ishlashda davom etsin
         logger.exception(

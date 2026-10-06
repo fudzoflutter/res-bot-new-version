@@ -1,0 +1,87 @@
+import asyncio
+import io
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.methods import SendPhoto
+
+from app.handlers import business
+
+
+def trigger(kind, sender=111):
+    target = SimpleNamespace(
+        message_id=8, photo=None, video=None, video_note=None,
+    )
+    media = SimpleNamespace(file_id="stored-media")
+    setattr(target, kind, [media] if kind == "photo" else media)
+    return SimpleNamespace(
+        text="?", reply_to_message=target, business_connection_id="connection-a",
+        from_user=SimpleNamespace(id=sender), chat=SimpleNamespace(id=555),
+        message_id=9,
+    )
+
+
+def setup_db(monkeypatch, *, enabled=True, saved=""):
+    database = SimpleNamespace(
+        get_connection=AsyncMock(return_value={
+            "user_id": 111, "user_chat_id": 222, "is_enabled": enabled,
+        }),
+        get_setting=AsyncMock(return_value=saved), set_setting=AsyncMock(),
+    )
+    monkeypatch.setattr(business, "db", database)
+    return database
+
+
+@pytest.mark.parametrize("kind", ["photo", "video", "video_note"])
+def test_view_once_reuses_telegram_file_without_download(monkeypatch, kind):
+    database = setup_db(monkeypatch)
+    bot = AsyncMock()
+    assert asyncio.run(business._save_replied_view_once(trigger(kind), bot))
+    send = getattr(bot, "send_" + kind)
+    assert send.await_args.args == (222, "stored-media")
+    assert "business_connection_id" not in send.await_args.kwargs
+    bot.get_file.assert_not_called()
+    bot.download_file.assert_not_called()
+    bot.send_message.assert_not_called()
+    database.set_setting.assert_awaited_once()
+
+
+@pytest.mark.parametrize("sender,enabled,saved", [
+    (999, True, ""), (111, False, ""), (111, True, "1"),
+])
+def test_view_once_rejects_outsider_disabled_and_duplicate(monkeypatch, sender, enabled, saved):
+    database = setup_db(monkeypatch, enabled=enabled, saved=saved)
+    bot = AsyncMock()
+    asyncio.run(business._save_replied_view_once(trigger("photo", sender), bot))
+    bot.send_photo.assert_not_called()
+    bot.get_file.assert_not_called()
+    database.set_setting.assert_not_called()
+
+
+def test_invalid_reference_uses_upload_fallback(monkeypatch):
+    database = setup_db(monkeypatch)
+    bot = AsyncMock()
+    bot.send_photo.side_effect = [TelegramBadRequest(
+        method=SendPhoto(chat_id=222, photo="stored-media"),
+        message="wrong file identifier",
+    ), None]
+    bot.get_file.return_value = SimpleNamespace(file_path="photos/photo.jpg")
+    bot.download_file.return_value = io.BytesIO(b"photo-content")
+    asyncio.run(business._save_replied_view_once(trigger("photo"), bot))
+    assert bot.send_photo.await_count == 2
+    assert bot.send_photo.await_args.args[1].data == b"photo-content"
+    database.set_setting.assert_awaited_once()
+
+
+def test_privacy_rejection_does_not_download_or_mark_saved(monkeypatch):
+    database = setup_db(monkeypatch)
+    bot = AsyncMock()
+    bot.send_photo.side_effect = TelegramBadRequest(
+        method=SendPhoto(chat_id=222, photo="stored-media"),
+        message="protected content",
+    )
+    asyncio.run(business._save_replied_view_once(trigger("photo"), bot))
+    bot.download_file.assert_not_called()
+    database.set_setting.assert_not_called()
