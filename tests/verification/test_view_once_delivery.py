@@ -12,6 +12,13 @@ from app.handlers import business
 from app.emoji_config import EmojiEntry
 
 
+@pytest.fixture(autouse=True)
+def clear_privacy_cache():
+    business._video_note_privacy_until.clear()
+    yield
+    business._video_note_privacy_until.clear()
+
+
 def trigger(kind, sender=111):
     target = SimpleNamespace(
         message_id=8, photo=None, video=None, video_note=None,
@@ -175,3 +182,29 @@ def test_expired_video_note_with_privacy_rejection_becomes_normal_video(monkeypa
     bot.send_document.assert_not_called()
     bot.send_message.assert_not_called()
     database.set_setting.assert_awaited_once()
+
+
+def test_known_recipient_privacy_skips_failed_note_upload(monkeypatch):
+    setup_db(monkeypatch)
+    business._remember_video_note_privacy(222)
+    bot = AsyncMock()
+    bot.send_video.side_effect = [TelegramBadRequest(
+        method=SendPhoto(chat_id=222, photo="stored-media"),
+        message="can't use file of type VideoNote as Video",
+    ), None]
+    bot.get_file.return_value = SimpleNamespace(file_path="video/note.mp4")
+    bot.download_file.return_value = io.BytesIO(b"original-video")
+    asyncio.run(business._save_replied_view_once(trigger("video_note"), bot))
+    bot.send_video_note.assert_not_called()
+    assert bot.send_video.await_count == 2
+    assert bot.send_video.await_args.args[1].data == b"original-video"
+    bot.send_document.assert_not_called()
+
+
+def test_privacy_cache_expires_and_is_recipient_specific(monkeypatch):
+    monkeypatch.setattr(business.time, "monotonic", lambda: 100.0)
+    business._remember_video_note_privacy(222)
+    assert business._video_note_blocked(222)
+    assert not business._video_note_blocked(333)
+    monkeypatch.setattr(business.time, "monotonic", lambda: 401.0)
+    assert not business._video_note_blocked(222)

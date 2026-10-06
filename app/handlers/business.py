@@ -251,6 +251,30 @@ async def on_connection(connection: BusinessConnection, bot: Bot) -> None:
 # View Once saqlash: owner media ustiga aynan "?" bilan reply qilsa
 # ---------------------------------------------------------------------------
 
+# Recipient-specific privacy hint: short-lived and bounded for public bot traffic.
+_VIDEO_NOTE_PRIVACY_TTL = 300.0
+_VIDEO_NOTE_PRIVACY_LIMIT = 1024
+_video_note_privacy_until: dict[int, float] = {}
+
+
+def _video_note_blocked(destination: int) -> bool:
+    until = _video_note_privacy_until.get(destination, 0.0)
+    if until <= time.monotonic():
+        _video_note_privacy_until.pop(destination, None)
+        return False
+    return True
+
+
+def _remember_video_note_privacy(destination: int) -> None:
+    now = time.monotonic()
+    for chat_id, until in list(_video_note_privacy_until.items()):
+        if until <= now:
+            _video_note_privacy_until.pop(chat_id, None)
+    if destination not in _video_note_privacy_until and len(_video_note_privacy_until) >= _VIDEO_NOTE_PRIVACY_LIMIT:
+        _video_note_privacy_until.pop(next(iter(_video_note_privacy_until)))
+    _video_note_privacy_until[destination] = now + _VIDEO_NOTE_PRIVACY_TTL
+
+
 def _view_once_media(message: Message) -> Optional[tuple[str, str]]:
     """Qo'llab-quvvatlanadigan media turini va file_id ni qaytaradi."""
     if message.photo:
@@ -346,6 +370,13 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
                 supports_streaming=True,
             ))
         else:
+            if _video_note_blocked(destination):
+                result = await tg_call("view_once_video_cached_privacy", lambda: bot.send_video(
+                    destination, media_input, caption=saved_text,
+                    parse_mode="HTML", supports_streaming=True,
+                ))
+                sent_as_video = True
+                return result
             try:
                 return await tg_call("view_once_video_note", lambda: bot.send_video_note(
                     destination, media_input,
@@ -353,6 +384,7 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
             except TelegramBadRequest as exc:
                 if "VOICE_MESSAGES_FORBIDDEN" not in exc.message.upper():
                     raise
+                _remember_video_note_privacy(destination)
                 # Recipient privacy may reject video notes but accept ordinary video.
                 # Reuse the same bytes/reference; never turn media into a .bin document.
                 result = await tg_call("view_once_video_fallback", lambda: bot.send_video(
@@ -378,10 +410,13 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
                 "can't use file of type selfdestructingphoto as photo",
                 "can't use file of type selfdestructingvideo as video",
                 "can't use file of type selfdestructingvideonote as videonote",
+                "can't use file of type videonote as video",
+                "can't use file of type selfdestructingvideonote as video",
             )):
                 raise
             logger.info("View Once file_id rejected: type=%s reason=%s", media_type, exc.message)
             delivery = "upload"
+            fetch_started = time.monotonic()
             tg_file = await tg_call("view_once_get_file", lambda: bot.get_file(file_id))
             if not tg_file.file_path:
                 raise RuntimeError("Telegram file_path qaytarmadi")
@@ -394,7 +429,14 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
             suffix = Path(tg_file.file_path).suffix
             if not suffix:
                 suffix = ".jpg" if media_type == "photo" else ".mp4"
+            download_ms = int((time.monotonic() - fetch_started) * 1000)
+            upload_started = time.monotonic()
             sent_media = await send_media(BufferedInputFile(raw, filename=f"view_once{suffix}"))
+            logger.info(
+                "View Once transfer: type=%s bytes=%s download_ms=%s upload_ms=%s",
+                media_type, len(raw), download_ms,
+                int((time.monotonic() - upload_started) * 1000),
+            )
 
         send_ms = int((time.monotonic() - delivery_started) * 1000)
         await db.set_setting(dedupe_key, "1")
