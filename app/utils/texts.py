@@ -170,11 +170,9 @@ REPORT_RESEND_FAILED = (
 )
 
 REPORT_VOICE_SETTING_HINT = (
-    f"\n{E_INFO} <i>Telegram sozlamasi: Sozlamalar → Maxfiylik va xavfsizlik "
-    f"→ Ovozli xabarlar → «Hamma».  Shundan keyin ovozli xabar va dumaloq "
-    f"video ASL ko'rinishida keladi.\n"
-    f"Yuborilgan fayl ichida AYNAN o'sha ovoz (OGG/OPUS) — istalgan "
-    f"pleyerda ochiladi.</i>"
+    f"\n{E_INFO} <i>Ovozli xabarni Telegram maxfiylik sozlamangiz rad etdi. "
+    f"Sozlamalar → Maxfiylik va xavfsizlik → Ovozli xabarlar → «Hamma» "
+    f"qilib qo‘ying. Keyingi o‘chirilgan ovozlar asl ko‘rinishda yuboriladi.</i>"
 )
 
 REPORT_UNCACHED = (
