@@ -19,6 +19,13 @@ def clear_privacy_cache():
     business._video_note_privacy_until.clear()
 
 
+def make_bot():
+    bot = AsyncMock()
+    bot.token = "123456:TEST-TOKEN"
+    bot.session.api.file_url = lambda token, path: f"https://api.telegram.org/file/bot{token}/{path}"
+    return bot
+
+
 def trigger(kind, sender=111):
     target = SimpleNamespace(
         message_id=8, photo=None, video=None, video_note=None,
@@ -46,7 +53,7 @@ def setup_db(monkeypatch, *, enabled=True, saved=""):
 @pytest.mark.parametrize("kind", ["photo", "video", "video_note"])
 def test_view_once_reuses_telegram_file_without_download(monkeypatch, kind):
     database = setup_db(monkeypatch)
-    bot = AsyncMock()
+    bot = make_bot()
     bot.send_video_note.return_value = SimpleNamespace(message_id=123)
     assert asyncio.run(business._save_replied_view_once(trigger(kind), bot))
     send = getattr(bot, "send_" + kind)
@@ -71,7 +78,7 @@ def test_view_once_reuses_telegram_file_without_download(monkeypatch, kind):
 ])
 def test_view_once_rejects_outsider_disabled_and_duplicate(monkeypatch, sender, enabled, saved):
     database = setup_db(monkeypatch, enabled=enabled, saved=saved)
-    bot = AsyncMock()
+    bot = make_bot()
     asyncio.run(business._save_replied_view_once(trigger("photo", sender), bot))
     bot.send_photo.assert_not_called()
     bot.get_file.assert_not_called()
@@ -84,7 +91,7 @@ def test_view_once_rejects_outsider_disabled_and_duplicate(monkeypatch, sender, 
 ])
 def test_invalid_reference_uses_upload_fallback(monkeypatch, reason):
     database = setup_db(monkeypatch)
-    bot = AsyncMock()
+    bot = make_bot()
     bot.send_photo.side_effect = [TelegramBadRequest(
         method=SendPhoto(chat_id=222, photo="stored-media"),
         message=reason,
@@ -93,13 +100,16 @@ def test_invalid_reference_uses_upload_fallback(monkeypatch, reason):
     bot.download_file.return_value = io.BytesIO(b"photo-content")
     asyncio.run(business._save_replied_view_once(trigger("photo"), bot))
     assert bot.send_photo.await_count == 2
-    assert bot.send_photo.await_args.args[1].data == b"photo-content"
+    upload = bot.send_photo.await_args.args[1]
+    assert isinstance(upload, business._ViewOnceStream)
+    assert upload.filename == "view_once.jpg"
+    bot.download_file.assert_not_called()
     database.set_setting.assert_awaited_once()
 
 
 def test_privacy_rejection_does_not_download_or_mark_saved(monkeypatch):
     database = setup_db(monkeypatch)
-    bot = AsyncMock()
+    bot = make_bot()
     bot.send_photo.side_effect = TelegramBadRequest(
         method=SendPhoto(chat_id=222, photo="stored-media"),
         message="protected content",
@@ -114,7 +124,7 @@ def test_custom_emoji_is_rendered_in_saved_caption(monkeypatch):
     monkeypatch.setattr(business, "EMOJI", replace(
         business.EMOJI, view_once_photo=EmojiEntry("123456789", "🖼"),
     ))
-    bot = AsyncMock()
+    bot = make_bot()
     asyncio.run(business._save_replied_view_once(trigger("photo"), bot))
     caption = bot.send_photo.await_args.kwargs["caption"]
     assert '<tg-emoji emoji-id="123456789">' in caption
@@ -123,7 +133,7 @@ def test_custom_emoji_is_rendered_in_saved_caption(monkeypatch):
 
 def test_receipt_failure_does_not_resend_saved_video(monkeypatch):
     database = setup_db(monkeypatch)
-    bot = AsyncMock()
+    bot = make_bot()
     bot.send_video_note.return_value = SimpleNamespace(message_id=123)
     bot.send_message.side_effect = RuntimeError("receipt failed")
     asyncio.run(business._save_replied_view_once(trigger("video_note"), bot))
@@ -140,7 +150,7 @@ def test_admins_save_each_others_media_to_requester_chat(monkeypatch, owner_role
     monkeypatch.setattr(business.admin_roles, "role_of", lambda uid: {
         111: owner_role, 999: sender_role,
     }.get(uid))
-    bot = AsyncMock()
+    bot = make_bot()
     bot.send_video_note.return_value = SimpleNamespace(message_id=123)
     asyncio.run(business._save_replied_view_once(trigger(kind, sender=999), bot))
     assert getattr(bot, "send_" + kind).await_args.args == (999, "stored-media")
@@ -157,7 +167,7 @@ def test_cross_saving_requires_two_full_admins(monkeypatch, owner_role, sender_r
     monkeypatch.setattr(business.admin_roles, "role_of", lambda uid: {
         111: owner_role, 999: sender_role,
     }.get(uid))
-    bot = AsyncMock()
+    bot = make_bot()
     asyncio.run(business._save_replied_view_once(trigger("photo", sender=999), bot))
     bot.send_photo.assert_not_called()
     database.set_setting.assert_not_called()
@@ -165,7 +175,7 @@ def test_cross_saving_requires_two_full_admins(monkeypatch, owner_role, sender_r
 
 def test_expired_video_note_with_privacy_rejection_becomes_normal_video(monkeypatch):
     database = setup_db(monkeypatch)
-    bot = AsyncMock()
+    bot = make_bot()
     method = SendVideoNote(chat_id=222, video_note="stored-media")
     bot.send_video_note.side_effect = [
         TelegramBadRequest(method=method, message="FILE_REFERENCE_EXPIRED"),
@@ -176,7 +186,8 @@ def test_expired_video_note_with_privacy_rejection_becomes_normal_video(monkeypa
     asyncio.run(business._save_replied_view_once(trigger("video_note"), bot))
     bot.send_video.assert_awaited_once()
     uploaded = bot.send_video.await_args.args[1]
-    assert uploaded.data == b"original-video-with-audio"
+    assert isinstance(uploaded, business._ViewOnceStream)
+    bot.download_file.assert_not_called()
     assert uploaded.filename.endswith(".mp4")
     assert "Aylana video saqlandi" in bot.send_video.await_args.kwargs["caption"]
     bot.send_document.assert_not_called()
@@ -187,7 +198,7 @@ def test_expired_video_note_with_privacy_rejection_becomes_normal_video(monkeypa
 def test_known_recipient_privacy_skips_failed_note_upload(monkeypatch):
     setup_db(monkeypatch)
     business._remember_video_note_privacy(222)
-    bot = AsyncMock()
+    bot = make_bot()
     bot.send_video.side_effect = [TelegramBadRequest(
         method=SendPhoto(chat_id=222, photo="stored-media"),
         message="can't use file of type VideoNote as Video",
@@ -197,7 +208,8 @@ def test_known_recipient_privacy_skips_failed_note_upload(monkeypatch):
     asyncio.run(business._save_replied_view_once(trigger("video_note"), bot))
     bot.send_video_note.assert_not_called()
     assert bot.send_video.await_count == 2
-    assert bot.send_video.await_args.args[1].data == b"original-video"
+    assert isinstance(bot.send_video.await_args.args[1], business._ViewOnceStream)
+    bot.download_file.assert_not_called()
     bot.send_document.assert_not_called()
 
 
@@ -208,3 +220,76 @@ def test_privacy_cache_expires_and_is_recipient_specific(monkeypatch):
     assert not business._video_note_blocked(333)
     monkeypatch.setattr(business.time, "monotonic", lambda: 401.0)
     assert not business._video_note_blocked(222)
+
+
+def test_stream_yields_first_chunk_before_reading_rest_and_can_restart():
+    produced = []
+
+    async def source(**kwargs):
+        for chunk in [b"first-video-chunk", b"last-video-chunk"]:
+            produced.append(chunk)
+            yield chunk
+
+    bot = SimpleNamespace(session=SimpleNamespace(stream_content=source))
+    upload = business._ViewOnceStream("https://example.test/media", filename="video.mp4")
+
+    async def check():
+        stream = upload.read(bot)
+        assert await anext(stream) == b"first-video-chunk"
+        assert produced == [b"first-video-chunk"]
+        assert await anext(stream) == b"last-video-chunk"
+        with pytest.raises(StopAsyncIteration):
+            await anext(stream)
+        assert b"".join([chunk async for chunk in upload.read(bot)]) == (
+            b"first-video-chunklast-video-chunk"
+        )
+        assert produced == [b"first-video-chunk", b"last-video-chunk"]
+
+    try:
+        asyncio.run(check())
+    finally:
+        upload.close()
+
+
+def test_stream_error_does_not_expose_token_url():
+    sensitive_url = "https://example.test/bot-fake-token/media"
+
+    async def source(**kwargs):
+        raise RuntimeError(sensitive_url)
+        yield b""  # async generator signature
+
+    bot = SimpleNamespace(session=SimpleNamespace(stream_content=source))
+    upload = business._ViewOnceStream(sensitive_url, filename="video.mp4")
+
+    async def check():
+        with pytest.raises(RuntimeError, match="View Once stream failed") as exc:
+            await anext(upload.read(bot))
+        assert "fake-token" not in str(exc.value)
+        assert exc.value.__suppress_context__
+
+    try:
+        asyncio.run(check())
+    finally:
+        upload.close()
+
+
+def test_stream_enforces_size_limit(monkeypatch):
+    monkeypatch.setattr(business, "MEDIA_MAX_DOWNLOAD", 4)
+
+    async def source(**kwargs):
+        yield b"1234"
+        yield b"5"
+
+    bot = SimpleNamespace(session=SimpleNamespace(stream_content=source))
+    upload = business._ViewOnceStream("https://example.test/media", filename="video.mp4")
+
+    async def check():
+        stream = upload.read(bot)
+        assert await anext(stream) == b"1234"
+        with pytest.raises(RuntimeError):
+            await anext(stream)
+
+    try:
+        asyncio.run(check())
+    finally:
+        upload.close()

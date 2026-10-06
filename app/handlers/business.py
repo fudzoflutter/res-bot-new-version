@@ -34,6 +34,7 @@ from app.emoji_config import EMOJI
 
 import logging
 import time
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -42,7 +43,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     BusinessConnection,
     BusinessMessagesDeleted,
-    BufferedInputFile,
+    URLInputFile,
     Message,
     ReplyParameters,
     User as TgUser,
@@ -53,6 +54,9 @@ from app.services import admin_roles, alerts
 from app.services import permissions as perms
 from app.services.reporter import (
     Reporter,
+    MEDIA_MAX_DOWNLOAD,
+    MEDIA_MEMORY_LIMIT,
+    MEDIA_DOWNLOAD_TIMEOUT,
     invalidate_connection,
     mark_connection_state,
 )
@@ -251,6 +255,38 @@ async def on_connection(connection: BusinessConnection, bot: Bot) -> None:
 # View Once saqlash: owner media ustiga aynan "?" bilan reply qilsa
 # ---------------------------------------------------------------------------
 
+class _ViewOnceStream(URLInputFile):
+    """Stream uploads, retaining a bounded-memory spool for privacy fallback."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._spool = tempfile.SpooledTemporaryFile(max_size=MEDIA_MEMORY_LIMIT)
+        self._complete = False
+
+    def close(self):
+        self._spool.close()
+
+    async def read(self, bot):
+        received = 0
+        try:
+            self._spool.seek(0)
+            if self._complete:
+                while chunk := self._spool.read(self.chunk_size):
+                    yield chunk
+                return
+            self._spool.truncate(0)
+            async for chunk in super().read(bot):
+                received += len(chunk)
+                if received > MEDIA_MAX_DOWNLOAD:
+                    raise RuntimeError("media exceeds download limit")
+                self._spool.write(chunk)
+                yield chunk
+            self._complete = True
+        except Exception as exc:
+            # HTTP errors may include the token-bearing download URL.
+            raise RuntimeError(f"View Once stream failed ({type(exc).__name__})") from None
+
+
 # Recipient-specific privacy hint: short-lived and bounded for public bot traffic.
 _VIDEO_NOTE_PRIVACY_TTL = 300.0
 _VIDEO_NOTE_PRIVACY_LIMIT = 1024
@@ -363,24 +399,24 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
         if media_type == "photo":
             return await tg_call("view_once_photo", lambda: bot.send_photo(
                 destination, media_input, caption=saved_text, parse_mode="HTML",
-            ))
+            ), timeout=MEDIA_DOWNLOAD_TIMEOUT if isinstance(media_input, URLInputFile) else 60.0)
         elif media_type == "video":
             return await tg_call("view_once_video", lambda: bot.send_video(
                 destination, media_input, caption=saved_text, parse_mode="HTML",
                 supports_streaming=True,
-            ))
+            ), timeout=MEDIA_DOWNLOAD_TIMEOUT if isinstance(media_input, URLInputFile) else 60.0)
         else:
             if _video_note_blocked(destination):
                 result = await tg_call("view_once_video_cached_privacy", lambda: bot.send_video(
                     destination, media_input, caption=saved_text,
                     parse_mode="HTML", supports_streaming=True,
-                ))
+                ), timeout=MEDIA_DOWNLOAD_TIMEOUT if isinstance(media_input, URLInputFile) else 60.0)
                 sent_as_video = True
                 return result
             try:
                 return await tg_call("view_once_video_note", lambda: bot.send_video_note(
                     destination, media_input,
-                ))
+                ), timeout=MEDIA_DOWNLOAD_TIMEOUT if isinstance(media_input, URLInputFile) else 60.0)
             except TelegramBadRequest as exc:
                 if "VOICE_MESSAGES_FORBIDDEN" not in exc.message.upper():
                     raise
@@ -390,13 +426,14 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
                 result = await tg_call("view_once_video_fallback", lambda: bot.send_video(
                     destination, media_input, caption=saved_text,
                     parse_mode="HTML", supports_streaming=True,
-                ))
+                ), timeout=MEDIA_DOWNLOAD_TIMEOUT if isinstance(media_input, URLInputFile) else 60.0)
                 sent_as_video = True
                 return result
 
     lookup_ms = int((time.monotonic() - started) * 1000)
     delivery_started = time.monotonic()
     delivery = "file_id"
+    upload_stream = None
     try:
         try:
             # Telegram reuses its stored file. No get_file/download/upload round trip.
@@ -420,21 +457,24 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
             tg_file = await tg_call("view_once_get_file", lambda: bot.get_file(file_id))
             if not tg_file.file_path:
                 raise RuntimeError("Telegram file_path qaytarmadi")
-            stream = await tg_call(
-                "view_once_download", lambda: bot.download_file(tg_file.file_path),
-            )
-            raw = stream.read()
-            if not raw:
-                raise RuntimeError("Yuklangan media bo'sh")
+            size = getattr(tg_file, "file_size", None)
+            if size and size > MEDIA_MAX_DOWNLOAD:
+                raise RuntimeError("View Once media exceeds download limit")
             suffix = Path(tg_file.file_path).suffix
             if not suffix:
                 suffix = ".jpg" if media_type == "photo" else ".mp4"
-            download_ms = int((time.monotonic() - fetch_started) * 1000)
+            # Fetch and multipart-upload overlap; do not buffer the entire video.
+            upload_stream = _ViewOnceStream(
+                bot.session.api.file_url(bot.token, tg_file.file_path),
+                filename=f"view_once{suffix}", chunk_size=256 * 1024,
+                timeout=int(MEDIA_DOWNLOAD_TIMEOUT), bot=bot,
+            )
+            get_file_ms = int((time.monotonic() - fetch_started) * 1000)
             upload_started = time.monotonic()
-            sent_media = await send_media(BufferedInputFile(raw, filename=f"view_once{suffix}"))
+            sent_media = await send_media(upload_stream)
             logger.info(
-                "View Once transfer: type=%s bytes=%s download_ms=%s upload_ms=%s",
-                media_type, len(raw), download_ms,
+                "View Once transfer: type=%s mode=stream bytes=%s get_file_ms=%s stream_upload_ms=%s",
+                media_type, size, get_file_ms,
                 int((time.monotonic() - upload_started) * 1000),
             )
 
@@ -474,6 +514,10 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
             target.message_id,
             media_type,
         )
+
+    finally:
+        if upload_stream is not None:
+            upload_stream.close()
 
     return True
 
