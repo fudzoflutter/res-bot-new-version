@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#050915">
-    <title>SolutionTeam — Robot</title>
+    <meta name="theme-color" content="#ffffff">
+    <title>SolutionTeam Bot — Admin Panel</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -35,10 +35,9 @@
     <div id="app">
         <header class="app-header">
             <div class="brand">
-                <div class="brand-mark">S</div>
                 <div class="brand-copy">
                     <strong>SolutionTeam</strong>
-                    <span>Robot</span>
+                    <span>Bot</span>
                 </div>
             </div>
             <button id="profile-open" class="profile-button" type="button" aria-label="Admin profilini ochish">
@@ -49,6 +48,7 @@
 
         <main class="screens">
             <section id="tab-dashboard" class="tab-content active">
+                <div class="page-heading"><div><span class="eyebrow">RES WORKSPACE</span><h1>Asosiy</h1><p>Bot, ulanishlar va bugungi faollik.</p></div></div>
                 <div class="hero-status panel-card">
                     <div class="hero-icon"><span class="pulse-core"></span></div>
                     <div class="hero-copy">
@@ -62,7 +62,7 @@
                 <div class="service-grid">
                     <div class="service-chip"><span class="service-icon blue">API</span><div><b id="api-status">Online</b><span>Web API</span></div></div>
                     <div class="service-chip"><span class="service-icon green">DB</span><div><b id="db-status">Tekshirilmoqda</b><span>Database</span></div></div>
-                    <div class="service-chip"><span class="service-icon violet">ST</span><div><b id="role-badge">...</b><span>Joriy rol</span></div></div>
+                    <div class="service-chip"><span class="service-icon violet">RB</span><div><b id="role-badge">...</b><span>Joriy rol</span></div></div>
                 </div>
 
                 <div class="stats-grid dashboard-stats">
@@ -78,12 +78,6 @@
                     <div class="chart-legend"><span><i class="legend-dot blue-dot"></i>Xabar</span><span><i class="legend-dot purple-dot"></i>Tahrir</span><span><i class="legend-dot red-dot"></i>O‘chirilgan</span></div>
                 </div>
 
-                <div class="quick-grid">
-                    <button class="quick-action cyan" type="button" data-open-tab="tab-users"><svg><use href="#i-search"/></svg><div><b>Foydalanuvchi topish</b><span>ID yoki username</span></div></button>
-                    <button class="quick-action blue" type="button" data-open-tab="tab-broadcast" data-requires="broadcast.view"><svg><use href="#i-send"/></svg><div><b>Reklama yuborish</b><span>Broadcast builder</span></div></button>
-                    <button class="quick-action red" type="button" data-open-tab="tab-moderation" data-requires="users.view"><svg><use href="#i-ban"/></svg><div><b>Bloklash</b><span>Moderatsiya</span></div></button>
-                    <button class="quick-action violet" type="button" data-open-tab="tab-settings" data-requires="settings.view"><svg><use href="#i-settings"/></svg><div><b>Sozlamalar</b><span>Bot parametrlari</span></div></button>
-                </div>
             </section>
 
             <section id="tab-users" class="tab-content">
@@ -91,6 +85,7 @@
                 <div class="search-wrap"><svg><use href="#i-search"/></svg><label class="sr-only" for="search-users">Foydalanuvchini qidirish</label><input type="search" id="search-users" autocomplete="off" placeholder="ID, username yoki ism..."></div>
                 <div class="user-toolbar"><button id="verify-connections-btn" class="btn secondary compact" type="button">Ulanishlarni tekshirish</button><span id="users-status" class="inline-status" role="status" aria-live="polite"></span></div>
                 <div id="users-list" class="user-list"><div class="loading-state">Foydalanuvchilar yuklanmoqda...</div></div>
+                <p class="users-help">Bloklash, o‘chirish va xabar yuborish — foydalanuvchi profilida.</p>
                 <div id="users-empty" class="empty-state" style="display:none">Foydalanuvchi topilmadi.</div>
                 <div class="pagination-row"><button id="users-prev" class="btn secondary" type="button">← Oldingi</button><span id="users-page-info">1 / 1</span><button id="users-next" class="btn secondary" type="button">Keyingi →</button></div>
             </section>
@@ -113,17 +108,19 @@
             </section>
 
             <section id="tab-menu" class="tab-content">
-                <div class="page-heading"><div><span class="eyebrow">Admin vositalari</span><h1>Menyu</h1><p>Barcha qo‘shimcha boshqaruv bo‘limlari.</p></div></div>
+                <div class="page-heading"><div><span class="eyebrow">Admin vositalari</span><h1>Menyu</h1><p>Kerakli amallar, tartibli bo‘limlarda.</p></div></div>
                 <div class="menu-grid">
-                    <button class="menu-card cyan" type="button" data-open-tab="tab-broadcast" data-requires="broadcast.view"><span class="menu-icon"><svg><use href="#i-send"/></svg></span><div><b>Reklama</b><span>Broadcast builder va progress</span></div><svg class="chevron"><use href="#i-chevron"/></svg></button>
-                    <button class="menu-card red" type="button" data-open-tab="tab-moderation" data-requires="users.view"><span class="menu-icon"><svg><use href="#i-ban"/></svg></span><div><b>Bloklash</b><span>Ban / unban boshqaruvi</span></div><svg class="chevron"><use href="#i-chevron"/></svg></button>
-                    <button class="menu-card green" type="button" data-open-tab="tab-subscriptions" data-requires="settings.view"><span class="menu-icon"><svg><use href="#i-crown"/></svg></span><div><b>Obuna va to‘lovlar</b><span>Premium, karta va cheklar</span></div><svg class="chevron"><use href="#i-chevron"/></svg></button>
-                    <button class="menu-card violet" type="button" data-open-tab="tab-settings" data-requires="settings.view"><span class="menu-icon"><svg><use href="#i-settings"/></svg></span><div><b>Sozlamalar</b><span>Hold mode va retention</span></div><svg class="chevron"><use href="#i-chevron"/></svg></button>
+                    <h2 class="menu-group-title" data-requires="users.view">Foydalanuvchilar bilan ishlash</h2>
+                    <button class="menu-card cyan" type="button" data-open-tab="tab-broadcast" data-requires="broadcast.view"><span class="menu-icon"><svg><use href="#i-send"/></svg></span><div><b>Reklama</b><span>Xabar, media va yuborish holati</span></div><svg class="chevron"><use href="#i-chevron"/></svg></button>
+                    <button class="menu-card red" type="button" data-open-tab="tab-moderation" data-requires="users.view"><span class="menu-icon"><svg><use href="#i-ban"/></svg></span><div><b>Bloklash</b><span>Cheklovlar va blokdan chiqarish</span></div><svg class="chevron"><use href="#i-chevron"/></svg></button>
+                    <h2 class="menu-group-title">Panel boshqaruvi</h2>
+                    <button class="menu-card violet" type="button" data-open-tab="tab-settings" data-requires="settings.view"><span class="menu-icon"><svg><use href="#i-settings"/></svg></span><div><b>Sozlamalar</b><span>Bot holati va saqlash muddati</span></div><svg class="chevron"><use href="#i-chevron"/></svg></button>
                     <button class="menu-card purple" type="button" data-open-tab="tab-admins" data-requires="admins.view"><span class="menu-icon"><svg><use href="#i-crown"/></svg></span><div><b>Adminlar</b><span>Rollar va ruxsatlar</span></div><svg class="chevron"><use href="#i-chevron"/></svg></button>
                     <button class="menu-card slate" type="button" data-open-tab="tab-profile"><span class="menu-icon"><svg><use href="#i-user"/></svg></span><div><b>Profil</b><span>Joriy sessiya va rol</span></div><svg class="chevron"><use href="#i-chevron"/></svg></button>
                 </div>
-                <div class="panel-card permission-card"><div class="permission-head"><span class="menu-icon small"><svg><use href="#i-shield"/></svg></span><div><b>Server-side himoya</b><span>Har bir amal Telegram initData va RBAC bilan qayta tekshiriladi.</span></div></div></div>
+                <div class="panel-card permission-card"><div class="permission-head"><span class="menu-icon small"><svg><use href="#i-shield"/></svg></span><div><b>Himoyalangan boshqaruv</b><span>Amallar admin rolingizga muvofiq bajariladi.</span></div></div></div>
             </section>
+
 
             <section id="tab-broadcast" class="tab-content">
                 <div class="screen-header"><button class="icon-btn back-btn" type="button" data-open-tab="tab-menu" aria-label="Orqaga"><svg><use href="#i-back"/></svg></button><div><h1>Reklama yuborish</h1><p>Foydalanuvchilarga xabar yuborish.</p></div><button id="broadcast-refresh" class="icon-btn" type="button" aria-label="Yuborish holatini yangilash"><svg><use href="#i-refresh"/></svg></button></div>
@@ -144,29 +141,6 @@
                 <div class="panel-card form-card danger-panel"><div class="form-grid"><div class="form-field"><label for="ban-user-id">Telegram ID</label><input type="text" inputmode="numeric" id="ban-user-id" class="glass-input" placeholder="123456789"></div><div class="form-field"><label for="ban-reason">Sabab</label><input type="text" id="ban-reason" class="glass-input" placeholder="Ixtiyoriy"></div></div><button id="btn-ban" class="btn danger full" type="button">Foydalanuvchini bloklash</button></div>
                 <div class="section-title-row list-title"><div><span class="eyebrow">Moderatsiya</span><h2>Bloklanganlar</h2></div></div>
                 <div id="banned-list" class="user-list"></div>
-            </section>
-
-            <section id="tab-subscriptions" class="tab-content">
-                <div class="screen-header"><button class="icon-btn back-btn" type="button" data-open-tab="tab-menu" aria-label="Orqaga"><svg><use href="#i-back"/></svg></button><div><h1>Obuna va to‘lovlar</h1><p>Premium rejim, karta va cheklar.</p></div><button id="subscriptions-refresh" class="icon-btn" type="button" aria-label="Yangilash"><svg><use href="#i-refresh"/></svg></button></div>
-                <div class="stats-grid subscription-stats">
-                    <div class="metric-card gradient-blue"><span>Faol obunalar</span><strong id="sub-active-count">0</strong></div>
-                    <div class="metric-card gradient-violet"><span>Kutilayotgan chek</span><strong id="sub-pending-count">0</strong></div>
-                    <div class="metric-card gradient-cyan"><span>Tasdiqlangan</span><strong id="sub-approved-count">0</strong></div>
-                    <div class="metric-card gradient-purple"><span>Rad etilgan</span><strong id="sub-rejected-count">0</strong></div>
-                </div>
-                <div class="panel-card form-card">
-                    <div class="section-title-row"><div><span class="eyebrow">Premium rejim</span><h2>Obuna sozlamalari</h2></div><label class="switch"><input type="checkbox" id="sub-enabled" aria-label="Premium rejim"><span class="slider"></span></label></div>
-                    <p id="sub-mode-help" class="field-help">OFF: obuna tugmasi yashirin, View Once bepul.</p>
-                    <div class="form-grid">
-                        <div class="form-field"><label for="sub-price">Narx (so‘m)</label><input id="sub-price" class="glass-input" type="number" min="1000" step="1000" value="25000"></div>
-                        <div class="form-field"><label for="sub-days">Muddat (kun)</label><input id="sub-days" class="glass-input" type="number" min="1" max="3650" value="30"></div>
-                        <div class="form-field"><label for="sub-card">Karta raqami</label><input id="sub-card" class="glass-input" inputmode="numeric" placeholder="8600 1234 5678 9012"></div>
-                        <div class="form-field"><label for="sub-holder">Karta egasi</label><input id="sub-holder" class="glass-input" placeholder="ISM FAMILIYA"></div>
-                    </div>
-                    <button id="sub-save" class="btn primary full" type="button">Sozlamalarni saqlash</button>
-                </div>
-                <div class="section-title-row list-title"><div><span class="eyebrow">Cheklar</span><h2>To‘lov arizalari</h2></div><select id="sub-payment-filter" class="glass-input compact-select"><option value="PENDING">Kutilayotgan</option><option value="APPROVED">Tasdiqlangan</option><option value="REJECTED">Rad etilgan</option><option value="ALL">Barchasi</option></select></div>
-                <div id="subscription-payments" class="user-list"><div class="loading-state">To‘lovlar yuklanmoqda...</div></div>
             </section>
 
             <section id="tab-settings" class="tab-content">
@@ -214,19 +188,6 @@
             <div class="detail-pane active" data-detail-pane="info">
                 <div class="detail-list"><div><span>Ism</span><b id="sheet-full-name">-</b></div><div><span>Username</span><b id="sheet-username-line">-</b></div><div><span>Ro‘yxatdan o‘tgan</span><b id="sheet-created">-</b></div><div><span>Oxirgi faollik</span><b id="sheet-last-activity">-</b></div><div><span>Ulanishlar</span><b id="sheet-connections">-</b></div></div>
                 <div class="stats-grid sheet-stats"><div class="metric-card"><span>Hodisalar</span><strong id="sheet-stat-events">0</strong></div><div class="metric-card"><span>Tahrir</span><strong id="sheet-stat-edits">0</strong></div><div class="metric-card"><span>O‘chirish</span><strong id="sheet-stat-deletes">0</strong></div><div class="metric-card"><span>Faol ulanish</span><strong id="sheet-stat-active">0</strong></div></div>
-                <div class="panel-card sheet-subscription">
-                    <div class="section-title-row"><div><span class="eyebrow">Premium</span><h2>Obuna</h2></div><span id="sheet-sub-status" class="status-badge status-neutral">YO‘Q</span></div>
-                    <div class="detail-list compact-detail"><div><span>Tugash sanasi</span><b id="sheet-sub-expiry">-</b></div><div><span>Qolgan muddat</span><b id="sheet-sub-remaining">-</b></div></div>
-                    <div id="sheet-sub-controls" class="subscription-actions">
-                        <button class="btn secondary compact" type="button" data-sub-days="7">+7 kun</button>
-                        <button class="btn secondary compact" type="button" data-sub-days="30">+30 kun</button>
-                        <button class="btn secondary compact" type="button" data-sub-days="90">+90 kun</button>
-                        <button id="sheet-sub-lifetime" class="btn secondary compact" type="button">Cheksiz</button>
-                        <input id="sheet-sub-date" class="glass-input" type="date">
-                        <button id="sheet-sub-set-date" class="btn secondary compact" type="button">Sanani qo‘yish</button>
-                        <button id="sheet-sub-cancel" class="btn danger compact" type="button">Obunani bekor qilish</button>
-                    </div>
-                </div>
             </div>
             <div class="detail-pane" data-detail-pane="activity"><div id="sheet-events" class="message-list"><div class="empty-state">Faollik yo‘q.</div></div></div>
             <div class="detail-pane" data-detail-pane="message"><div class="form-field"><label for="sheet-message-text">Bevosita xabar</label><textarea id="sheet-message-text" class="glass-input" rows="4" maxlength="4096" placeholder="Foydalanuvchiga yuboriladigan xabar..."></textarea></div><button id="sheet-send-message" class="btn primary full" type="button"><svg><use href="#i-send"/></svg> Xabar yuborish</button></div>
@@ -234,6 +195,6 @@
         </section>
     </div>
 
-    <script src="app.js?v=23"></script>
+    <script src="app.js?v=22"></script>
 </body>
 </html>

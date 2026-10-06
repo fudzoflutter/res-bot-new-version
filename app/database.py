@@ -286,34 +286,6 @@ CREATE TABLE IF NOT EXISTS bot_settings (
     updated_at  TEXT NOT NULL
 );
 
--- Premium subscriptions (one current row per user).
-CREATE TABLE IF NOT EXISTS subscriptions (
-    user_id       BIGINT PRIMARY KEY,
-    status        TEXT NOT NULL DEFAULT 'ACTIVE',
-    starts_at     TEXT,
-    expires_at    TEXT,
-    is_lifetime   BOOLEAN NOT NULL DEFAULT FALSE,
-    granted_by    BIGINT,
-    note          TEXT NOT NULL DEFAULT '',
-    updated_at    TEXT NOT NULL
-);
-
--- Manual card payments: user sends receipt, admin approves in Web panel.
-CREATE TABLE IF NOT EXISTS payment_requests (
-    id              TEXT PRIMARY KEY,
-    user_id         BIGINT NOT NULL,
-    plan_days       INTEGER NOT NULL,
-    amount          BIGINT NOT NULL,
-    receipt_file_id TEXT NOT NULL,
-    receipt_kind    TEXT NOT NULL DEFAULT 'photo',
-    status          TEXT NOT NULL DEFAULT 'PENDING',
-    created_at      TEXT NOT NULL,
-    reviewed_at     TEXT,
-    reviewed_by     BIGINT,
-    reject_reason   TEXT NOT NULL DEFAULT '',
-    updated_at      TEXT NOT NULL
-);
-
 CREATE INDEX IF NOT EXISTS idx_events_time         ON events (occurred_at);
 CREATE INDEX IF NOT EXISTS idx_events_type         ON events (event_type);
 CREATE INDEX IF NOT EXISTS idx_events_user         ON events (user_id);
@@ -324,15 +296,6 @@ CREATE INDEX IF NOT EXISTS idx_activity_log_conn   ON activity_log (connection_i
 CREATE INDEX IF NOT EXISTS idx_activity_log_time   ON activity_log (occurred_at);
 CREATE INDEX IF NOT EXISTS idx_activity_log_type   ON activity_log (event_type);
 CREATE INDEX IF NOT EXISTS idx_connections_user    ON connections (user_id);
-
-CREATE INDEX IF NOT EXISTS idx_subscriptions_expiry
-    ON subscriptions (status, expires_at);
-CREATE INDEX IF NOT EXISTS idx_payment_requests_status
-    ON payment_requests (status, created_at);
-CREATE INDEX IF NOT EXISTS idx_payment_requests_user
-    ON payment_requests (user_id, status);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_requests_one_pending
-    ON payment_requests (user_id) WHERE status = 'PENDING';
 
 -- One-time import marker (so we never import the same SQLite file twice).
 CREATE TABLE IF NOT EXISTS supabase_migrations (
@@ -850,53 +813,6 @@ class Database:
 
             maintenance.invalidate()
 
-    # -- premium subscriptions / manual payments ----------------------------
-
-    async def get_subscription(self, user_id: int) -> Optional[dict]:
-        return await self._backend.get_subscription(int(user_id))
-
-    async def save_subscription(self, user_id: int, **values: Any) -> None:
-        await self._backend.save_subscription(int(user_id), **values)
-
-    async def count_active_subscriptions(self, now_iso: str) -> int:
-        return await self._backend.count_active_subscriptions(now_iso)
-
-    async def create_payment_request(
-        self, payment_id: str, user_id: int, plan_days: int, amount: int,
-        receipt_file_id: str, receipt_kind: str,
-    ) -> None:
-        await self._backend.create_payment_request(
-            payment_id, user_id, plan_days, amount, receipt_file_id, receipt_kind
-        )
-
-    async def get_payment_request(self, payment_id: str) -> Optional[dict]:
-        return await self._backend.get_payment_request(payment_id)
-
-    async def get_pending_payment_for_user(self, user_id: int) -> Optional[dict]:
-        return await self._backend.get_pending_payment_for_user(int(user_id))
-
-    async def payment_requests_page(
-        self, status: Optional[str] = None, *, limit: int = 50, offset: int = 0
-    ) -> list[dict]:
-        return await self._backend.payment_requests_page(
-            status, limit=limit, offset=offset
-        )
-
-    async def count_payment_requests(self, status: Optional[str] = None) -> int:
-        return await self._backend.count_payment_requests(status)
-
-    async def review_payment_request(
-        self, payment_id: str, status: str, reviewed_by: int, reason: str = ""
-    ) -> Optional[dict]:
-        return await self._backend.review_payment_request(
-            payment_id, status, reviewed_by, reason
-        )
-
-    async def approve_payment_request(
-        self, payment_id: str, reviewed_by: int
-    ) -> Optional[dict]:
-        return await self._backend.approve_payment_request(payment_id, reviewed_by)
-
     # -- connections extended -----------------------------------------------
 
     async def all_connections(self) -> list[dict]:
@@ -1364,47 +1280,6 @@ class PostgresDatabase:
                         """,
                         s.get("key"), s.get("value"), s.get("updated_at") or _now(),
                     )
-                for sub in batch.get("subscriptions") or ():
-                    await conn.execute(
-                        """
-                        INSERT INTO subscriptions
-                            (user_id,status,starts_at,expires_at,is_lifetime,granted_by,note,updated_at)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-                        ON CONFLICT (user_id) DO UPDATE SET
-                            status=EXCLUDED.status, starts_at=EXCLUDED.starts_at,
-                            expires_at=EXCLUDED.expires_at, is_lifetime=EXCLUDED.is_lifetime,
-                            granted_by=EXCLUDED.granted_by, note=EXCLUDED.note,
-                            updated_at=EXCLUDED.updated_at
-                        WHERE EXCLUDED.updated_at > subscriptions.updated_at
-                        """,
-                        sub.get("user_id"), sub.get("status") or "ACTIVE",
-                        sub.get("starts_at"), sub.get("expires_at"),
-                        bool(sub.get("is_lifetime")), sub.get("granted_by"),
-                        sub.get("note") or "", sub.get("updated_at") or _now(),
-                    )
-                for pay in batch.get("payment_requests") or ():
-                    await conn.execute(
-                        """
-                        INSERT INTO payment_requests
-                            (id,user_id,plan_days,amount,receipt_file_id,receipt_kind,status,
-                             created_at,reviewed_at,reviewed_by,reject_reason,updated_at)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-                        ON CONFLICT (id) DO UPDATE SET
-                            user_id=EXCLUDED.user_id, plan_days=EXCLUDED.plan_days,
-                            amount=EXCLUDED.amount, receipt_file_id=EXCLUDED.receipt_file_id,
-                            receipt_kind=EXCLUDED.receipt_kind, status=EXCLUDED.status,
-                            created_at=EXCLUDED.created_at, reviewed_at=EXCLUDED.reviewed_at,
-                            reviewed_by=EXCLUDED.reviewed_by, reject_reason=EXCLUDED.reject_reason,
-                            updated_at=EXCLUDED.updated_at
-                        WHERE EXCLUDED.updated_at > payment_requests.updated_at
-                        """,
-                        pay.get("id"), pay.get("user_id"), pay.get("plan_days"),
-                        pay.get("amount"), pay.get("receipt_file_id"),
-                        pay.get("receipt_kind") or "photo", pay.get("status") or "PENDING",
-                        pay.get("created_at") or _now(), pay.get("reviewed_at"),
-                        pay.get("reviewed_by"), pay.get("reject_reason") or "",
-                        pay.get("updated_at") or _now(),
-                    )
                 for e in batch.get("events") or ():
                     await conn.execute(
                         """
@@ -1607,8 +1482,6 @@ class PostgresDatabase:
                 if not exists:
                     return False
                 await conn.execute("DELETE FROM broadcast_recipients WHERE user_id = $1", user_id)
-                await conn.execute("DELETE FROM payment_requests WHERE user_id = $1", user_id)
-                await conn.execute("DELETE FROM subscriptions WHERE user_id = $1", user_id)
                 await conn.execute("DELETE FROM events WHERE user_id = $1", user_id)
                 await conn.execute("DELETE FROM connections WHERE user_id = $1", user_id)
                 await conn.execute("UPDATE activity_log SET user_id = NULL WHERE user_id = $1", user_id)
@@ -2351,178 +2224,6 @@ class PostgresDatabase:
             """,
             key, value, _now(),
         )
-
-    # ======================================================================
-    # PREMIUM SUBSCRIPTIONS / MANUAL PAYMENTS
-    # ======================================================================
-
-    async def get_subscription(self, user_id: int) -> Optional[dict]:
-        return await self._fetch_one(
-            "SELECT * FROM subscriptions WHERE user_id = $1", int(user_id)
-        )
-
-    async def save_subscription(
-        self, user_id: int, *, status: str, starts_at: Optional[str],
-        expires_at: Optional[str], is_lifetime: bool, granted_by: Optional[int],
-        note: str = "",
-    ) -> None:
-        await self._execute(
-            """
-            INSERT INTO subscriptions
-                (user_id, status, starts_at, expires_at, is_lifetime, granted_by, note, updated_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-            ON CONFLICT (user_id) DO UPDATE SET
-                status=EXCLUDED.status, starts_at=EXCLUDED.starts_at,
-                expires_at=EXCLUDED.expires_at, is_lifetime=EXCLUDED.is_lifetime,
-                granted_by=EXCLUDED.granted_by, note=EXCLUDED.note, updated_at=EXCLUDED.updated_at
-            """,
-            int(user_id), str(status), starts_at, expires_at, bool(is_lifetime),
-            granted_by, str(note)[:500], _now(),
-        )
-
-    async def count_active_subscriptions(self, current_iso: str) -> int:
-        return int(await self._fetchval(
-            """
-            SELECT COUNT(*) FROM subscriptions
-            WHERE status='ACTIVE'
-              AND (is_lifetime=TRUE OR (expires_at IS NOT NULL AND expires_at > $1))
-            """,
-            current_iso,
-        ) or 0)
-
-    async def create_payment_request(
-        self, payment_id: str, user_id: int, plan_days: int, amount: int,
-        receipt_file_id: str, receipt_kind: str,
-    ) -> None:
-        stamp = _now()
-        await self._execute(
-            """
-            INSERT INTO payment_requests
-                (id,user_id,plan_days,amount,receipt_file_id,receipt_kind,status,created_at,updated_at)
-            VALUES ($1,$2,$3,$4,$5,$6,'PENDING',$7,$7)
-            """,
-            str(payment_id), int(user_id), int(plan_days), int(amount),
-            str(receipt_file_id), str(receipt_kind), stamp,
-        )
-
-    async def get_payment_request(self, payment_id: str) -> Optional[dict]:
-        return await self._fetch_one(
-            "SELECT * FROM payment_requests WHERE id=$1", str(payment_id)
-        )
-
-    async def get_pending_payment_for_user(self, user_id: int) -> Optional[dict]:
-        return await self._fetch_one(
-            """
-            SELECT * FROM payment_requests
-            WHERE user_id=$1 AND status='PENDING'
-            ORDER BY created_at DESC LIMIT 1
-            """,
-            int(user_id),
-        )
-
-    async def payment_requests_page(
-        self, status: Optional[str] = None, *, limit: int = 50, offset: int = 0
-    ) -> list[dict]:
-        if status:
-            return await self._fetch_all(
-                """
-                SELECT p.*, u.username, u.first_name, u.last_name
-                FROM payment_requests p LEFT JOIN users u ON u.user_id=p.user_id
-                WHERE p.status=$1 ORDER BY p.created_at DESC LIMIT $2 OFFSET $3
-                """,
-                str(status).upper(), max(1,int(limit)), max(0,int(offset)),
-            )
-        return await self._fetch_all(
-            """
-            SELECT p.*, u.username, u.first_name, u.last_name
-            FROM payment_requests p LEFT JOIN users u ON u.user_id=p.user_id
-            ORDER BY p.created_at DESC LIMIT $1 OFFSET $2
-            """,
-            max(1,int(limit)), max(0,int(offset)),
-        )
-
-    async def count_payment_requests(self, status: Optional[str] = None) -> int:
-        if status:
-            return int(await self._fetchval(
-                "SELECT COUNT(*) FROM payment_requests WHERE status=$1",
-                str(status).upper(),
-            ) or 0)
-        return int(await self._fetchval("SELECT COUNT(*) FROM payment_requests") or 0)
-
-    async def review_payment_request(
-        self, payment_id: str, status: str, reviewed_by: int, reason: str = ""
-    ) -> Optional[dict]:
-        desired = str(status).upper()
-        if desired not in ("REJECTED", "CANCELLED"):
-            raise ValueError("invalid payment review status")
-        return await self._fetch_one(
-            """
-            UPDATE payment_requests
-            SET status=$1, reviewed_at=$2, reviewed_by=$3, reject_reason=$4, updated_at=$2
-            WHERE id=$5 AND status='PENDING'
-            RETURNING *
-            """,
-            desired, _now(), int(reviewed_by), str(reason)[:500], str(payment_id),
-        )
-
-    async def approve_payment_request(
-        self, payment_id: str, reviewed_by: int
-    ) -> Optional[dict]:
-        async with self.pool.acquire() as conn:
-            async with conn.transaction():
-                row = await conn.fetchrow(
-                    "SELECT * FROM payment_requests WHERE id=$1 AND status='PENDING' FOR UPDATE",
-                    str(payment_id),
-                )
-                if row is None:
-                    return None
-                payment = dict(row)
-                uid = int(payment["user_id"])
-                sub_row = await conn.fetchrow(
-                    "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE", uid
-                )
-                current = dict(sub_row) if sub_row else {}
-                now_dt = local_now()
-                stamp = now_dt.isoformat(timespec="seconds")
-                lifetime = bool(current.get("is_lifetime")) and str(current.get("status") or "").upper() == "ACTIVE"
-                starts_at = current.get("starts_at") or stamp
-                expires_at = current.get("expires_at") if lifetime else None
-                if not lifetime:
-                    base = now_dt
-                    raw_exp = current.get("expires_at")
-                    if str(current.get("status") or "").upper() == "ACTIVE" and raw_exp:
-                        try:
-                            parsed = datetime.fromisoformat(str(raw_exp))
-                            if parsed > base:
-                                base = parsed
-                        except ValueError:
-                            pass
-                    expires_at = (base + timedelta(days=int(payment["plan_days"]))).isoformat(timespec="seconds")
-                await conn.execute(
-                    """
-                    INSERT INTO subscriptions
-                        (user_id,status,starts_at,expires_at,is_lifetime,granted_by,note,updated_at)
-                    VALUES ($1,'ACTIVE',$2,$3,$4,$5,$6,$7)
-                    ON CONFLICT (user_id) DO UPDATE SET
-                        status='ACTIVE', starts_at=EXCLUDED.starts_at, expires_at=EXCLUDED.expires_at,
-                        is_lifetime=EXCLUDED.is_lifetime, granted_by=EXCLUDED.granted_by,
-                        note=EXCLUDED.note, updated_at=EXCLUDED.updated_at
-                    """,
-                    uid, starts_at, expires_at, lifetime, int(reviewed_by),
-                    f"payment:{payment_id}", stamp,
-                )
-                await conn.execute(
-                    """
-                    UPDATE payment_requests SET status='APPROVED', reviewed_at=$1, reviewed_by=$2,
-                        reject_reason='', updated_at=$1 WHERE id=$3
-                    """,
-                    stamp, int(reviewed_by), str(payment_id),
-                )
-                payment.update({
-                    "status":"APPROVED", "reviewed_at":stamp, "reviewed_by":int(reviewed_by),
-                    "subscription_expires_at":expires_at, "subscription_lifetime":lifetime,
-                })
-                return payment
 
     # ======================================================================
     # CONNECTIONS EXTENDED

@@ -63,7 +63,6 @@ P_DASHBOARD_VIEW = "dashboard.view"
 P_CONNECTIONS_VIEW = "connections.view"
 P_CONNECTIONS_MANAGE = "connections.manage"
 P_CONNECTIONS_DELETE = "connections.delete"
-P_MESSAGES_VIEW = "messages.view"
 P_LOGS_VIEW = "logs.view"
 P_LOGS_CLEAR = "logs.clear"
 P_SEARCH_USE = "search.use"
@@ -92,7 +91,6 @@ PERMISSIONS: dict[str, tuple[str, ...]] = {
     # --- ko'rish (monitoring) -------------------------------------------
     P_DASHBOARD_VIEW: (ROLE_OWNER, ROLE_ADMIN, ROLE_MODERATOR),
     P_CONNECTIONS_VIEW: (ROLE_OWNER, ROLE_ADMIN, ROLE_MODERATOR),
-    P_MESSAGES_VIEW: (ROLE_OWNER, ROLE_ADMIN, ROLE_MODERATOR),
     P_LOGS_VIEW: (ROLE_OWNER, ROLE_ADMIN),
     P_SEARCH_USE: (ROLE_OWNER, ROLE_ADMIN, ROLE_MODERATOR),
     P_CACHE_VIEW: (ROLE_OWNER, ROLE_ADMIN),

@@ -31,28 +31,26 @@ Har bir hodisa DBga (statistika + activity log) va adminga xabar qilinadi.
 from __future__ import annotations
 
 import logging
-import os
-import tempfile
+from pathlib import Path
 from typing import Optional
 
 from aiogram import Bot, Router
 from aiogram.types import (
     BusinessConnection,
     BusinessMessagesDeleted,
-    FSInputFile,
+    BufferedInputFile,
     Message,
     User as TgUser,
 )
 
 from app.database import db
-from app.services import admin_roles, alerts, subscriptions
+from app.services import admin_roles, alerts
 from app.services import permissions as perms
 from app.services.reporter import (
     Reporter,
     invalidate_connection,
     mark_connection_state,
 )
-from app.keyboards import user_kb
 from app.utils import texts
 from app.utils.telegram_api import call as tg_call
 
@@ -249,7 +247,7 @@ async def on_connection(connection: BusinessConnection, bot: Bot) -> None:
 # ---------------------------------------------------------------------------
 
 def _view_once_media(message: Message) -> Optional[tuple[str, str]]:
-    """Qo'llab-quvvatlanadigan View Once media turi va file_id ni qaytaradi."""
+    """Qo'llab-quvvatlanadigan media turini va file_id ni qaytaradi."""
     if message.photo:
         return "photo", message.photo[-1].file_id
     if message.video:
@@ -259,203 +257,15 @@ def _view_once_media(message: Message) -> Optional[tuple[str, str]]:
     return None
 
 
-def _view_once_name(media_type: str) -> str:
-    if media_type == "photo":
-        return "view_once.jpg"
-    if media_type == "video_note":
-        return "view_once_video_note.mp4"
-    return "view_once_video.mp4"
-
-
-async def _send_view_once_direct(
-    bot: Bot, destination: int, media_type: str, file_id: str
-) -> None:
-    """Telegram serveridagi mavjud ``file_id`` ni qayta ishlatib yuboradi.
-
-    Bu eng tez yo'l: Railway media baytlarini yuklab olmaydi.
-    Self-destructing photo bu yo'lni Telegram tomonidan rad etadi, shuning
-    uchun photo uchun chaqiruvchi darhol fallbackga o'tadi.
-    """
-    if media_type == "video":
-        await tg_call(
-            "view_once_send_video_direct",
-            lambda: bot.send_video(
-                destination,
-                video=file_id,
-                supports_streaming=True,
-            ),
-            attempts=2,
-            timeout=60.0,
-        )
-        return
-
-    if media_type == "video_note":
-        await tg_call(
-            "view_once_send_video_note_direct",
-            lambda: bot.send_video_note(destination, video_note=file_id),
-            attempts=2,
-            timeout=60.0,
-        )
-        return
-
-    # View Once rasm Bot API'da ``SelfDestructingPhoto`` sifatida keladi.
-    # Uni send_photo(file_id) bilan qayta ishlatish taqiqlangan; befoyda
-    # 400 so'rov yubormaymiz, darhol download/upload fallback ishlaydi.
-    raise RuntimeError("self-destructing photo requires upload fallback")
-
-
-async def _download_view_once_temp(
-    bot: Bot, file_id: str, media_type: str
-) -> tuple[str, int]:
-    """View Once faylni RAMga to'liq olmay, temp faylga oqim bilan yuklaydi."""
-    suffix = ".jpg" if media_type == "photo" else ".mp4"
-    fd, path = tempfile.mkstemp(prefix="view_once_", suffix=suffix)
-    os.close(fd)
-    try:
-        with open(path, "wb") as fp:
-            await tg_call(
-                "view_once_download",
-                lambda: bot.download(file_id, destination=fp),
-                attempts=2,
-                timeout=180.0,
-            )
-        size = os.path.getsize(path)
-        if size <= 0:
-            raise RuntimeError("View Once fayl bo'sh yuklandi")
-        return path, size
-    except Exception:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-        raise
-
-
-async def _send_view_once_upload(
-    bot: Bot, destination: int, media_type: str, path: str
-) -> str:
-    """Temp faylni owner chatiga yuboradi.
-
-    Asl media turi Telegram cheklovi sabab qabul qilinmasa, kontent baribir
-    yo'qolmasligi uchun oddiy video/document ko'rinishiga tushadi.
-    Qaytaradi: amalda ishlatilgan yuborish turi.
-    """
-    filename = _view_once_name(media_type)
-
-    if media_type == "photo":
-        try:
-            await tg_call(
-                "view_once_send_photo_upload",
-                lambda: bot.send_photo(
-                    destination, photo=FSInputFile(path, filename=filename)
-                ),
-                attempts=2,
-                timeout=180.0,
-            )
-            return "photo"
-        except Exception:
-            logger.info(
-                "View Once photo asl turida yuborilmadi; document fallback",
-                exc_info=True,
-            )
-            await tg_call(
-                "view_once_send_photo_document",
-                lambda: bot.send_document(
-                    destination, document=FSInputFile(path, filename=filename)
-                ),
-                attempts=2,
-                timeout=180.0,
-            )
-            return "document"
-
-    if media_type == "video":
-        try:
-            await tg_call(
-                "view_once_send_video_upload",
-                lambda: bot.send_video(
-                    destination,
-                    video=FSInputFile(path, filename=filename),
-                    supports_streaming=True,
-                ),
-                attempts=2,
-                timeout=240.0,
-            )
-            return "video"
-        except Exception:
-            logger.info(
-                "View Once video asl turida yuborilmadi; document fallback",
-                exc_info=True,
-            )
-            await tg_call(
-                "view_once_send_video_document",
-                lambda: bot.send_document(
-                    destination, document=FSInputFile(path, filename=filename)
-                ),
-                attempts=2,
-                timeout=240.0,
-            )
-            return "document"
-
-    # video_note: avval aylana video sifatida saqlashga harakat qilamiz.
-    # Bot API upload qilingan video_note uchun 1 daqiqalik limit qo'yadi;
-    # juda uzun/nomuvofiq fayl bo'lsa oddiy video, keyin document yuboramiz.
-    try:
-        await tg_call(
-            "view_once_send_video_note_upload",
-            lambda: bot.send_video_note(
-                destination,
-                video_note=FSInputFile(path, filename=filename),
-            ),
-            attempts=2,
-            timeout=240.0,
-        )
-        return "video_note"
-    except Exception:
-        logger.info(
-            "View Once video_note aylana ko'rinishida yuborilmadi; video fallback",
-            exc_info=True,
-        )
-
-    try:
-        await tg_call(
-            "view_once_send_video_note_as_video",
-            lambda: bot.send_video(
-                destination,
-                video=FSInputFile(path, filename=filename),
-                supports_streaming=True,
-            ),
-            attempts=2,
-            timeout=240.0,
-        )
-        return "video"
-    except Exception:
-        logger.info(
-            "View Once video_note video sifatida yuborilmadi; document fallback",
-            exc_info=True,
-        )
-
-    await tg_call(
-        "view_once_send_video_note_document",
-        lambda: bot.send_document(
-            destination, document=FSInputFile(path, filename=filename)
-        ),
-        attempts=2,
-        timeout=240.0,
-    )
-    return "document"
-
-
 async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
-    """Owner ``?`` bilan reply qilgan View Once mediani private botga saqlaydi.
+    """Ownerning ``?`` reply triggerini permanent nusxaga aylantiradi.
 
-    Strategiya:
-      * video/video_note: avval eng tez ``file_id`` direct yuborish;
-      * photo: SelfDestructingPhoto direct taqiqlangani uchun darhol fallback;
-      * direct rad etilsa: RAMga yig'masdan temp faylga download -> upload;
-      * video_note upload cheklansa: oddiy video -> document fallback.
+    Nusxa Business chatga emas, aynan shu business connection egasining
+    ``user_chat_id`` private chatiga yuboriladi.  Yuborishda ataylab
+    ``business_connection_id`` berilmaydi.
 
-    ``True`` — ``?`` View Once trigger sifatida tanildi; ``False`` — oddiy
-    business_message.
+    ``True`` — bu xabar View Once trigger sifatida tanildi (muvaffaqiyatli
+    saqlangan yoki saqlashga urinilgan); ``False`` — oddiy business_message.
     """
     if (message.text or "").strip() != "?" or not message.reply_to_message:
         return False
@@ -469,7 +279,8 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
     if not connection_id:
         return False
 
-    # Xavfsizlik: trigger faqat business connection egasining o'z xabari.
+    # Xavfsizlik: suhbatdosh "?" yuborsa uning mediasini ownerga ko'chirmaymiz.
+    # Trigger faqat business connection egasining o'z xabari bo'lishi shart.
     conn = await db.get_connection(connection_id)
     if not conn or not conn.get("is_enabled"):
         logger.warning("View Once: faol connection topilmadi (%s)", connection_id)
@@ -490,32 +301,7 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
         return True
     destination = int(destination)
 
-    # Premium gate: obuna rejimi O'CHIQ bo'lsa View Once avvalgidek bepul.
-    # Rejim YOQILGANDA avval obuna tekshiriladi, shundan KEYINGINA file_id
-    # download/direct send boshlanadi — obunasiz user media baytini olmaymiz.
-    sub_cfg = await subscriptions.get_config()
-    if sub_cfg.enabled and not await subscriptions.is_active(owner_id):
-        try:
-            await tg_call(
-                "view_once_premium_required",
-                lambda: bot.send_message(
-                    destination,
-                    "🔒 <b>View Once — Premium funksiya</b>\n\n"
-                    "Rasm, video va aylana videolarni saqlash uchun Premium obuna kerak.\n\n"
-                    f"💎 {sub_cfg.days} kun — {sub_cfg.price:,} so'm".replace(",", " "),
-                    parse_mode="HTML",
-                    reply_markup=user_kb.premium_required_menu(),
-                ),
-                attempts=2,
-            )
-        except Exception:  # noqa: BLE001
-            logger.info("View Once premium xabari yuborilmadi (owner=%s)", owner_id)
-        logger.info(
-            "View Once Premium gate: obunasiz owner (conn=%s owner=%s)",
-            connection_id, owner_id,
-        )
-        return True
-
+    # Poll/restart yoki Telegram retry bir xil triggerni ikki marta saqlamasin.
     dedupe_key = (
         f"view_once_saved:{connection_id}:{message.chat.id}:{message.message_id}"
     )
@@ -524,72 +310,53 @@ async def _save_replied_view_once(message: Message, bot: Bot) -> bool:
         return True
 
     media_type, file_id = media
-    direct_error: Optional[BaseException] = None
-
-    # 1) DIRECT — faqat bu media turi amalda qayta ishlatilishi mumkin bo'lsa.
-    if media_type != "photo":
-        try:
-            await _send_view_once_direct(bot, destination, media_type, file_id)
-            await db.set_setting(dedupe_key, "1")
-            logger.info(
-                "View Once DIRECT: conn=%s chat=%s trigger=%s target=%s type=%s",
-                connection_id,
-                message.chat.id,
-                message.message_id,
-                target.message_id,
-                media_type,
-            )
-            return True
-        except Exception as exc:  # noqa: BLE001
-            direct_error = exc
-            logger.warning(
-                "View Once DIRECT rad etildi; STREAM fallback: "
-                "conn=%s chat=%s trigger=%s target=%s type=%s error=%s",
-                connection_id,
-                message.chat.id,
-                message.message_id,
-                target.message_id,
-                media_type,
-                str(exc)[:220],
-            )
-
-    # 2) STREAM FALLBACK — SelfDestructingPhoto / FILE_REFERENCE_EXPIRED va
-    # shu kabi holatlar. Fayl to'liq RAMga olinmaydi.
-    temp_path: Optional[str] = None
     try:
-        temp_path, size = await _download_view_once_temp(bot, file_id, media_type)
-        sent_as = await _send_view_once_upload(
-            bot, destination, media_type, temp_path
-        )
+        tg_file = await bot.get_file(file_id)
+        if not tg_file.file_path:
+            raise RuntimeError("Telegram file_path qaytarmadi")
+        stream = await bot.download_file(tg_file.file_path)
+        raw = stream.read()
+        if not raw:
+            raise RuntimeError("Yuklangan media bo'sh")
+
+        suffix = Path(tg_file.file_path).suffix
+        if not suffix:
+            suffix = ".jpg" if media_type == "photo" else ".mp4"
+        upload = BufferedInputFile(raw, filename=f"view_once{suffix}")
+
+        # MUHIM: bu send_* chaqiruvlarida business_connection_id YO'Q.
+        if media_type == "photo":
+            await bot.send_photo(destination, upload, caption="💾 View Once saqlandi")
+        elif media_type == "video":
+            await bot.send_video(
+                destination,
+                upload,
+                caption="💾 View Once saqlandi",
+                supports_streaming=True,
+            )
+        else:  # video_note
+            await bot.send_video_note(destination, upload)
+            await bot.send_message(destination, "💾 View Once saqlandi")
+
         await db.set_setting(dedupe_key, "1")
         logger.info(
-            "View Once STREAM: conn=%s chat=%s trigger=%s target=%s "
-            "type=%s sent_as=%s bytes=%s direct_error=%s",
+            "View Once saved: conn=%s chat=%s trigger=%s target=%s type=%s bytes=%s",
             connection_id,
             message.chat.id,
             message.message_id,
             target.message_id,
             media_type,
-            sent_as,
-            size,
-            type(direct_error).__name__ if direct_error else "skipped",
+            len(raw),
         )
     except Exception:  # noqa: BLE001 – monitoring bot ishlashda davom etsin
         logger.exception(
-            "View Once STREAM yuborilmadi: conn=%s chat=%s trigger=%s "
-            "target=%s type=%s",
+            "View Once saqlanmadi: conn=%s chat=%s trigger=%s target=%s type=%s",
             connection_id,
             message.chat.id,
             message.message_id,
             target.message_id,
             media_type,
         )
-    finally:
-        if temp_path:
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                logger.debug("View Once temp fayl o'chmadi: %s", temp_path)
 
     return True
 
@@ -606,12 +373,9 @@ async def on_business_message(message: Message, bot: Bot) -> None:
     Tarkib jim saqlanadi — keyin o'chirilsa, aynan nima o'chirilgani
     ko'rsatilishi uchun.
     """
-    # View Once triggerni reporter keshidan oldin ishlaymiz. Agar owner media
-    # ustiga aynan "?" bilan reply qilgan bo'lsa, file_id orqali darhol
-    # private bot chatiga yuboramiz va shu control xabarni boshqa pipeline ga
-    # kiritmaymiz. Bu View Once javobini maksimal tezlashtiradi.
-    if await _save_replied_view_once(message, bot):
-        return
+    # View Once triggerni reporter keshidan oldin ishlaymiz.  Reporter baribir
+    # pastda chaqiriladi — mavjud delete/edit monitoring logikasi buzilmaydi.
+    await _save_replied_view_once(message, bot)
 
     if await _maintenance_on():
         logger.info(

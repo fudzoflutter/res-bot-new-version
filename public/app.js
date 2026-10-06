@@ -10,6 +10,18 @@ if (tg) {
     INIT_DATA = tg.initData || "";
 }
 
+function syncPanelTheme() {
+    const dark = tg?.colorScheme ? tg.colorScheme === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    const background = dark ? "#16191f" : "#ffffff";
+    const surface = dark ? "#16191f" : "#ffffff";
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", background);
+    try { tg?.setHeaderColor?.(surface); tg?.setBackgroundColor?.(background); } catch (e) { /* Older Telegram clients. */ }
+}
+syncPanelTheme();
+tg?.onEvent?.("themeChanged", syncPanelTheme);
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", syncPanelTheme);
+
 const API_URL = "/api";
 
 // Server-side authorization is the ONLY real gate; every value below is used
@@ -112,21 +124,6 @@ async function apiFetch(path, options) {
         throw error;
     }
     return payload || {};
-}
-
-async function apiFetchBlob(path) {
-    if (!INIT_DATA) throw new Error("Telegram initData topilmadi.");
-    const response = await fetch(`${API_URL}${path}`, { headers: authHeaders() });
-    if (!response.ok) {
-        let msg = `HTTP ${response.status}`;
-        try { const data = await response.json(); msg = data.error || msg; } catch (e) {}
-        throw new Error(msg);
-    }
-    return await response.blob();
-}
-
-function formatMoney(value) {
-    return Number(value || 0).toLocaleString("uz-UZ");
 }
 
 function can(permission) {
@@ -286,28 +283,24 @@ async function loadUsers(resetPage = false, { silent = false } = {}) {
             const name = `${user.first_name || ""} ${user.last_name || ""}`.trim() || "Noma'lum";
             const role = user.role ? ` · ${escapeHtml(user.role.toUpperCase())}` : "";
             const status = user.banned
-                ? '<span class="status-badge status-disabled">🚫 BLOKLANGAN</span>'
+                ? '<span class="status-badge status-disabled">Bloklangan</span>'
                 : (user.connected
-                    ? '<span class="status-badge status-enabled">🟢 ULANGAN</span>'
-                    : '<span class="status-badge status-neutral">⚪ ULANMAGAN</span>');
+                    ? '<span class="status-badge status-enabled">Ulangan</span>'
+                    : '<span class="status-badge status-neutral">Ulanmagan</span>');
             const markup = `
                 <div class="conn-header">
                     <div class="conn-user">
                         <div class="avatar" aria-hidden="true">${escapeHtml((Array.from(name)[0] || "?").toUpperCase())}</div>
                         <div class="user-info">
                             <h4>${escapeHtml(name)}${role}</h4>
-                            <span>ID: ${escapeHtml(safeId)}${user.username ? " · @" + escapeHtml(user.username) : ""}</span>
-                            <span>Ulanishlar: ${escapeHtml(user.connections_count || 0)} · Faol: ${escapeHtml(user.active_connections || 0)}</span>
+                            <span>${user.username ? "@" + escapeHtml(user.username) : "ID: " + escapeHtml(safeId)}</span>
                         </div>
                     </div>
                     ${status}
                 </div>
-                <div class="conn-actions" style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button class="btn btn-secondary open-user" data-id="${escapeHtml(safeId)}">Profil</button>
-                    <button class="btn btn-secondary copy-id" data-id="${escapeHtml(safeId)}">📋 ID nusxalash</button>
-                    ${can("users.moderate") && !user.protected && !user.banned ? '<button class="btn btn-danger ban-user">🚫 Bloklash</button>' : ""}
-                    ${can("users.moderate") && user.banned && !user.protected ? '<button class="btn btn-secondary unban-user">♻️ Blokdan olish</button>' : ""}
-                    ${can("users.delete") && !user.protected ? '<button class="btn btn-danger delete-user">🗑 O‘chirish</button>' : ""}
+                <div class="user-card-footer">
+                    <span>${escapeHtml(user.connections_count || 0)} ulanish · ${escapeHtml(user.active_connections || 0)} faol</span>
+                    <button class="text-action open-user" data-id="${escapeHtml(safeId)}">Profilni ochish →</button>
                 </div>
             `;
             let item = existing.get(safeId);
@@ -321,52 +314,6 @@ async function loadUsers(resetPage = false, { silent = false } = {}) {
             item._markup = markup;
             item.innerHTML = markup;
             item.querySelector(".open-user")?.addEventListener("click", () => openUserDetail(safeId));
-            item.querySelector(".copy-id")?.addEventListener("click", async () => {
-                try {
-                    await navigator.clipboard.writeText(String(safeId));
-                    haptic("success");
-                    notify(`ID nusxalandi: ${safeId}`);
-                } catch (e) {
-                    haptic("error");
-                    notify(`ID: ${safeId}`);
-                }
-            });
-            item.querySelector(".ban-user")?.addEventListener("click", (event) => withBusyButton(event.currentTarget, async () => {
-                const reason = window.prompt("Bloklash sababi (ixtiyoriy):", "");
-                if (reason === null) return;
-                invalidateUsersRequest();
-                const ok = await moderate("ban", safeId, reason);
-                if (ok) {
-                    await loadUsers(false);
-                    await loadDashboard();
-                }
-            }));
-            item.querySelector(".unban-user")?.addEventListener("click", (event) => withBusyButton(event.currentTarget, async () => {
-                invalidateUsersRequest();
-                const ok = await moderate("unban", safeId, "");
-                if (ok) {
-                    await loadUsers(false);
-                    await loadDashboard();
-                }
-            }));
-            item.querySelector(".delete-user")?.addEventListener("click", (event) => withBusyButton(event.currentTarget, async () => {
-                const confirmed = await confirmAction(`${name} (ID: ${safeId}) va unga tegishli yozuvlar butunlay o‘chiriladi. Davom etasizmi?`);
-                if (!confirmed) return;
-                invalidateUsersRequest();
-                try {
-                    const res = await apiFetch(`/users/${safeId}`, { method: "DELETE" });
-                    haptic("success");
-                    const warning = (res.cleanup_warnings || []).length
-                        ? `\nOgohlantirish: ${(res.cleanup_warnings || []).join(", ")}`
-                        : "";
-                    notify(`Foydalanuvchi ${safeId} o'chirildi.${warning}`);
-                    await loadUsers(false);
-                    if (can("dashboard.view")) await loadDashboard();
-                } catch (e) {
-                    haptic("error");
-                    notify("Foydalanuvchi o'chirilmadi: " + e.message);
-                }
-            }));
             rendered.push(item);
         });
         const keep = new Set(rendered);
@@ -430,7 +377,6 @@ const TAB_PERMISSIONS = {
     "tab-broadcast": "broadcast.view",
     "tab-moderation": "users.view",
     "tab-settings": "settings.view",
-    "tab-subscriptions": "settings.view",
     "tab-admins": "admins.view",
 };
 
@@ -443,7 +389,6 @@ function loadTab(tabId, options = {}) {
     if (tabId === "tab-dashboard" && can("dashboard.view")) return loadDashboard(options);
     if (tabId === "tab-users" && can("users.view")) return loadUsers(false, options);
     if (tabId === "tab-settings" && can("settings.view")) return loadSettings();
-    if (tabId === "tab-subscriptions" && can("settings.view")) return loadSubscriptions();
     if (tabId === "tab-analytics" && can("analytics.view")) return loadAnalytics(options);
     if (tabId === "tab-broadcast" && can("broadcast.view")) return loadBroadcastStatus(options);
     if (tabId === "tab-moderation" && can("users.view")) return loadBanned();
@@ -458,7 +403,7 @@ function activateTab(tabId, { load = true } = {}) {
     document.querySelectorAll(".tab-content").forEach((c) => c.classList.remove("active"));
     target.classList.add("active");
 
-    const extras = new Set(["tab-broadcast", "tab-moderation", "tab-settings", "tab-subscriptions", "tab-admins", "tab-profile"]);
+    const extras = new Set(["tab-broadcast", "tab-moderation", "tab-settings", "tab-admins", "tab-profile"]);
     const navTab = extras.has(tabId) ? "tab-menu" : tabId;
     document.querySelectorAll(".tab-btn").forEach((b) => {
         const active = b.dataset.tab === navTab;
@@ -1099,134 +1044,6 @@ const moderationRefresh = document.getElementById("moderation-refresh");
 if (moderationRefresh) moderationRefresh.addEventListener("click", () => loadBanned());
 
 // ---------------------------------------------------------------------------
-// Premium subscriptions / manual card payments
-// ---------------------------------------------------------------------------
-const subEnabled = document.getElementById("sub-enabled");
-const subPrice = document.getElementById("sub-price");
-const subDays = document.getElementById("sub-days");
-const subCard = document.getElementById("sub-card");
-const subHolder = document.getElementById("sub-holder");
-const subSave = document.getElementById("sub-save");
-const subFilter = document.getElementById("sub-payment-filter");
-const subRefresh = document.getElementById("subscriptions-refresh");
-
-function renderSubscriptionMode(enabled) {
-    const help = document.getElementById("sub-mode-help");
-    if (!help) return;
-    help.textContent = enabled
-        ? "ON: obuna tugmasi ko‘rinadi, View Once faqat ACTIVE Premium bilan ishlaydi."
-        : "OFF: obuna tugmasi yashirin, View Once bepul ishlaydi.";
-    help.classList.toggle("status-enabled", !enabled);
-}
-
-async function openReceipt(paymentId) {
-    try {
-        const blob = await apiFetchBlob(`/subscriptions/payments/${encodeURIComponent(paymentId)}/receipt`);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.target = "_blank";
-        a.rel = "noopener";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 30000);
-    } catch (e) {
-        notify("Chek ochilmadi: " + e.message, "error");
-    }
-}
-
-function renderPayments(items, canWrite) {
-    const list = document.getElementById("subscription-payments");
-    if (!list) return;
-    list.innerHTML = "";
-    if (!items?.length) {
-        list.innerHTML = '<div class="empty-state">Bu holatda to‘lov arizasi yo‘q.</div>';
-        return;
-    }
-    items.forEach((p) => {
-        const name = `${p.first_name || ""} ${p.last_name || ""}`.trim() || (p.username ? `@${p.username}` : `ID ${p.user_id}`);
-        const status = String(p.status || "PENDING").toUpperCase();
-        const statusClass = status === "APPROVED" ? "status-enabled" : status === "REJECTED" ? "status-disabled" : "status-neutral";
-        const el = document.createElement("div");
-        el.className = "panel-card payment-card";
-        el.innerHTML = `
-            <div class="payment-head"><div><b>${escapeHtml(name)}</b><span>ID: ${escapeHtml(p.user_id)}</span></div><span class="status-badge ${statusClass}">${escapeHtml(status)}</span></div>
-            <div class="payment-meta"><span>💎 ${escapeHtml(p.plan_days)} kun</span><span>💰 ${formatMoney(p.amount)} so‘m</span><span>🕐 ${escapeHtml(formatDateTime(p.created_at))}</span></div>
-            <div class="payment-actions">
-                <button class="btn secondary compact receipt-open" type="button">🧾 Chekni ko‘rish</button>
-                ${canWrite && status === "PENDING" ? '<button class="btn primary compact payment-approve" type="button">✅ Tasdiqlash</button><button class="btn danger compact payment-reject" type="button">❌ Rad etish</button>' : ""}
-            </div>`;
-        el.querySelector(".receipt-open")?.addEventListener("click", () => openReceipt(p.id));
-        el.querySelector(".payment-approve")?.addEventListener("click", async (ev) => {
-            const btn = ev.currentTarget;
-            await withBusyButton(btn, async () => {
-                if (!await confirmAction(`${name} uchun ${p.plan_days} kun Premiumni tasdiqlaysizmi?`)) return;
-                try {
-                    await apiFetch(`/subscriptions/payments/${encodeURIComponent(p.id)}`, { method: "POST", body: JSON.stringify({ action: "approve" }) });
-                    haptic("success"); notify("Premium tasdiqlandi."); await loadSubscriptions();
-                } catch (e) { haptic("error"); notify("Tasdiqlanmadi: " + e.message, "error"); }
-            });
-        });
-        el.querySelector(".payment-reject")?.addEventListener("click", async (ev) => {
-            const reason = window.prompt("Rad etish sababi (ixtiyoriy):", "");
-            if (reason === null) return;
-            await withBusyButton(ev.currentTarget, async () => {
-                try {
-                    await apiFetch(`/subscriptions/payments/${encodeURIComponent(p.id)}`, { method: "POST", body: JSON.stringify({ action: "reject", reason }) });
-                    haptic("success"); notify("To‘lov rad etildi."); await loadSubscriptions();
-                } catch (e) { haptic("error"); notify("Rad etilmadi: " + e.message, "error"); }
-            });
-        });
-        list.appendChild(el);
-    });
-}
-
-async function loadSubscriptions() {
-    if (!can("settings.view")) return;
-    try {
-        const filter = subFilter?.value || "PENDING";
-        const data = await apiFetch(`/subscriptions?status=${encodeURIComponent(filter)}`);
-        const cfg = data.config || {};
-        const canWrite = !!data.can_write;
-        if (subEnabled) { subEnabled.checked = !!cfg.enabled; subEnabled.disabled = !canWrite; }
-        if (subPrice) { subPrice.value = cfg.price || 25000; subPrice.disabled = !canWrite; }
-        if (subDays) { subDays.value = cfg.days || 30; subDays.disabled = !canWrite; }
-        if (subCard) { subCard.value = cfg.card_number || ""; subCard.disabled = !canWrite; }
-        if (subHolder) { subHolder.value = cfg.card_holder || ""; subHolder.disabled = !canWrite; }
-        if (subSave) subSave.disabled = !canWrite;
-        renderSubscriptionMode(!!cfg.enabled);
-        setText("sub-active-count", data.summary?.active || 0);
-        setText("sub-pending-count", data.summary?.pending || 0);
-        setText("sub-approved-count", data.summary?.approved || 0);
-        setText("sub-rejected-count", data.summary?.rejected || 0);
-        renderPayments(data.payments || [], canWrite);
-    } catch (e) {
-        console.error(e); notify("Obuna ma’lumotlari yuklanmadi: " + e.message, "error");
-    }
-}
-
-if (subEnabled) subEnabled.addEventListener("change", () => renderSubscriptionMode(subEnabled.checked));
-if (subFilter) subFilter.addEventListener("change", loadSubscriptions);
-if (subRefresh) subRefresh.addEventListener("click", loadSubscriptions);
-if (subSave) subSave.addEventListener("click", () => withBusyButton(subSave, async () => {
-    if (!can("settings.write")) return;
-    try {
-        const payload = {
-            enabled: !!subEnabled?.checked,
-            price: Number(subPrice?.value || 0),
-            days: Number(subDays?.value || 0),
-            card_number: subCard?.value || "",
-            card_holder: subHolder?.value || "",
-        };
-        await apiFetch("/subscriptions/config", { method: "POST", body: JSON.stringify(payload) });
-        haptic("success");
-        notify(payload.enabled ? "💎 Premium rejim YOQILDI." : "✅ Premium rejim o‘chirildi — View Once bepul.");
-        await loadSubscriptions();
-    } catch (e) { haptic("error"); notify("Sozlama saqlanmadi: " + e.message, "error"); }
-}));
-
-// ---------------------------------------------------------------------------
 // Settings (Hold Mode / maintenance notification / retention).
 // Server enforces owner-only writes — the checkbox is never trusted.
 // The Telegram admin panel toggles the SAME persistent state.
@@ -1319,9 +1136,8 @@ if (retentionSave) {
 }
 
 // ---------------------------------------------------------------------------
-// Event rendering helpers
+// Shared event rendering for user activity
 // ---------------------------------------------------------------------------
-
 function eventVisualType(type) {
     const value = String(type || "").toLowerCase();
     if (value === "delete" || value === "delete_media") return "delete";
@@ -1447,16 +1263,6 @@ async function openUserDetail(userId) {
         setText("sheet-stat-edits", Number(stats.edits || 0).toLocaleString("uz-UZ"));
         setText("sheet-stat-deletes", Number((stats.deletes || 0) + (stats.deletes_media || 0)).toLocaleString("uz-UZ"));
         setText("sheet-stat-active", Number(stats.active_connections || 0).toLocaleString("uz-UZ"));
-        const sub = user.subscription || {};
-        const subStatus = document.getElementById("sheet-sub-status");
-        if (subStatus) {
-            subStatus.className = `status-badge ${sub.active ? "status-enabled" : "status-neutral"}`;
-            subStatus.textContent = sub.active ? "ACTIVE" : "YO‘Q";
-        }
-        setText("sheet-sub-expiry", sub.active ? (sub.is_lifetime ? "Cheksiz" : formatDateTime(sub.expires_at)) : "-");
-        setText("sheet-sub-remaining", sub.active ? (sub.is_lifetime ? "Cheksiz" : `${sub.remaining_days || 0} kun`) : "-");
-        const subControls = document.getElementById("sheet-sub-controls");
-        if (subControls) subControls.style.display = can("settings.write") ? "grid" : "none";
         const status = document.getElementById("sheet-user-status");
         if (status) {
             status.className = `status-badge ${user.banned ? "status-disabled" : user.connected ? "status-enabled" : "status-neutral"}`;
@@ -1480,28 +1286,6 @@ async function openUserDetail(userId) {
         closeUserSheet();
     }
 }
-
-async function manageSheetSubscription(payload) {
-    if (!_sheetUserId || !can("settings.write")) return;
-    try {
-        await apiFetch(`/subscriptions/users/${_sheetUserId}`, { method: "POST", body: JSON.stringify(payload) });
-        haptic("success"); notify("Obuna yangilandi."); await openUserDetail(_sheetUserId);
-        if (document.getElementById("tab-subscriptions")?.classList.contains("active")) await loadSubscriptions();
-    } catch (e) { haptic("error"); notify("Obuna o‘zgarmadi: " + e.message, "error"); }
-}
-
-document.querySelectorAll("[data-sub-days]").forEach((btn) => btn.addEventListener("click", () => {
-    manageSheetSubscription({ action: "add_days", days: Number(btn.dataset.subDays || 0) });
-}));
-document.getElementById("sheet-sub-lifetime")?.addEventListener("click", () => manageSheetSubscription({ action: "lifetime" }));
-document.getElementById("sheet-sub-cancel")?.addEventListener("click", async () => {
-    if (await confirmAction("Bu user Premium obunasini bekor qilasizmi?")) manageSheetSubscription({ action: "cancel" });
-});
-document.getElementById("sheet-sub-set-date")?.addEventListener("click", () => {
-    const value = document.getElementById("sheet-sub-date")?.value || "";
-    if (!value) { notify("Tugash sanasini tanlang."); return; }
-    manageSheetSubscription({ action: "set_expiry", expires_at: value });
-});
 
 const sheetCopy = document.getElementById("sheet-copy-id");
 if (sheetCopy) sheetCopy.addEventListener("click", async () => {

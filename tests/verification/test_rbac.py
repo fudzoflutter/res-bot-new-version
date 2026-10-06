@@ -112,7 +112,7 @@ def test_permission_matrix_per_role() -> None:
 
     # ADMIN — operatsion amallar bor...
     for permission in (
-        perms.P_DASHBOARD_VIEW, perms.P_CONNECTIONS_VIEW, perms.P_MESSAGES_VIEW,
+        perms.P_DASHBOARD_VIEW, perms.P_CONNECTIONS_VIEW,
         perms.P_LOGS_VIEW, perms.P_SEARCH_USE, perms.P_CACHE_VIEW,
         perms.P_DATABASE_VIEW, perms.P_HEALTH_VIEW, perms.P_ANALYTICS_VIEW,
         perms.P_ALERTS_VIEW, perms.P_SETTINGS_VIEW, perms.P_CONNECTIONS_MANAGE,
@@ -128,7 +128,6 @@ def test_permission_matrix_per_role() -> None:
 
     # MODERATOR — ko'rish + moderatsiya; broadcast/sozlama/admin yo'q.
     assert perms.P_USERS_MODERATE in moderator
-    assert perms.P_MESSAGES_VIEW in moderator
     assert perms.P_ANALYTICS_VIEW in moderator
     for permission in (
         perms.P_BROADCAST_USE, perms.P_BROADCAST_VIEW, perms.P_SETTINGS_VIEW,
@@ -141,7 +140,6 @@ def test_permission_matrix_per_role() -> None:
     # VIEWER — FAQAT analytics (o'qish).
     assert viewer == frozenset({perms.P_ANALYTICS_VIEW})
     assert perms.P_ANALYTICS_VIEW in viewer
-    assert perms.P_MESSAGES_VIEW not in viewer
     assert perms.P_USERS_DELETE not in viewer
 
     # Rol bo'lmasa — hech narsa; noma'lum ruxsat — har doim False.

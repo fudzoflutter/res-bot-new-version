@@ -29,9 +29,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
-import io
 import json
-import mimetypes
 import logging
 import os
 import time
@@ -42,7 +40,7 @@ from aiohttp import web
 
 from app.config import settings
 from app.database import db
-from app.services import admin_roles, analytics, audit, connection_verify, maintenance, moderation, subscriptions
+from app.services import admin_roles, analytics, audit, connection_verify, maintenance, moderation
 from app.services import broadcast as broadcast_engine
 from app.services import permissions as perms
 from app.services.broadcast import AdError, BroadcastBusy
@@ -775,7 +773,6 @@ async def api_user_detail(request: web.Request) -> web.Response:
             _event_payload(row)
             for row in await db.search_events(user_id=user_id, limit=12, offset=0)
         ]
-        payload["subscription"] = await subscriptions.status(user_id, fresh=True)
         payload["requested_by_role"] = identity["role"]
         return web.json_response(payload, headers=_NO_CACHE)
     except Exception as exc:  # noqa: BLE001
@@ -797,70 +794,6 @@ def _event_payload(row: dict) -> dict[str, Any]:
         "business_connection_id": row.get("business_connection_id") or "",
         "occurred_at": row.get("occurred_at"),
     }
-
-
-async def api_messages(request: web.Request) -> web.Response:
-    """Admin xabarlar jurnali: real ``events`` jadvalidan sahifalangan o'qish."""
-    identity, error = _authorize_permission(request, perms.P_MESSAGES_VIEW)
-    if error is not None:
-        return error
-
-    filter_key = (request.query.get("filter") or "all").strip().lower()
-    groups: dict[str, Optional[list[str]]] = {
-        "all": None,
-        "deleted": ["delete", "delete_media"],
-        "edited": ["edit"],
-        "media": [
-            "sticker", "photo", "video", "animation",
-            "voice", "video_note", "audio", "document",
-        ],
-    }
-    if filter_key not in groups:
-        return web.json_response({"error": "Invalid message filter"}, status=400, headers=_NO_CACHE)
-    try:
-        limit = max(1, min(int(request.query.get("limit") or 30), 100))
-        offset = max(0, int(request.query.get("offset") or 0))
-    except ValueError:
-        return web.json_response({"error": "Invalid pagination"}, status=400, headers=_NO_CACHE)
-
-    raw_user = (request.query.get("user_id") or "").strip()
-    user_id = None
-    if raw_user:
-        user_id = _positive_int(raw_user)
-        if user_id is None:
-            return web.json_response({"error": "Invalid user_id"}, status=400, headers=_NO_CACHE)
-        # User qidiruvida tur guruhlarini aralashtirmaymiz: frontend qidiruv
-        # boshlanganida filtrni "all" ga qaytaradi. Bu paginationni aniq saqlaydi.
-        if filter_key != "all":
-            return web.json_response(
-                {"error": "User search supports filter=all only"},
-                status=400, headers=_NO_CACHE,
-            )
-
-    try:
-        if user_id is not None:
-            rows = await db.search_events(user_id=user_id, limit=limit, offset=offset)
-            total = await db.count_search_events(user_id=user_id)
-        else:
-            event_types = groups[filter_key]
-            rows = await db.events_page(event_types, limit=limit, offset=offset)
-            total = await db.count_events_multi(event_types)
-        return web.json_response(
-            {
-                "role": identity["role"],
-                "permissions": sorted(perms.permissions_for(identity["role"])),
-                "filter": filter_key,
-                "items": [_event_payload(row) for row in rows],
-                "total": int(total),
-                "limit": limit,
-                "offset": offset,
-                "has_next": offset + len(rows) < int(total),
-            },
-            headers=_NO_CACHE,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.error("API Messages error: %s", exc, exc_info=True)
-        return web.json_response({"error": "Server error"}, status=500)
 
 
 async def api_send_user_message(request: web.Request) -> web.Response:
@@ -1292,209 +1225,6 @@ async def api_moderate_user(request: web.Request) -> web.Response:
 
 
 # ---------------------------------------------------------------------------
-# PREMIUM SUBSCRIPTIONS / MANUAL CARD PAYMENTS
-# ---------------------------------------------------------------------------
-async def api_subscription_overview(request: web.Request) -> web.Response:
-    identity, error = _authorize_permission(request, perms.P_SETTINGS_VIEW)
-    if error is not None:
-        return error
-    status_filter = str(request.query.get("status") or "PENDING").upper()
-    if status_filter not in ("PENDING", "APPROVED", "REJECTED", "ALL"):
-        status_filter = "PENDING"
-    try:
-        cfg = await subscriptions.get_config(fresh=True)
-        items = await db.payment_requests_page(
-            None if status_filter == "ALL" else status_filter, limit=100, offset=0
-        )
-        return web.json_response(
-            {
-                "can_write": perms.role_has(identity["role"], perms.P_SETTINGS_WRITE),
-                "config": {
-                    "enabled": cfg.enabled,
-                    "price": cfg.price,
-                    "days": cfg.days,
-                    "card_number": cfg.card_number,
-                    "card_holder": cfg.card_holder,
-                },
-                "summary": await subscriptions.summary(),
-                "filter": status_filter,
-                "payments": items,
-            },
-            headers=_NO_CACHE,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.error("Subscription overview error: %s", exc, exc_info=True)
-        return web.json_response({"error": "Server error"}, status=500, headers=_NO_CACHE)
-
-
-async def api_subscription_config(request: web.Request) -> web.Response:
-    identity, error = _authorize_permission(request, perms.P_SETTINGS_WRITE)
-    if error is not None:
-        return error
-    data, error = await _read_json(request)
-    if error is not None:
-        return error
-    assert data is not None
-    try:
-        if "enabled" in data and not isinstance(data["enabled"], bool):
-            return web.json_response({"error": "enabled must be boolean"}, status=400)
-        cfg = await subscriptions.update_config(
-            enabled=data.get("enabled") if "enabled" in data else None,
-            price=int(data["price"]) if "price" in data else None,
-            days=int(data["days"]) if "days" in data else None,
-            card_number=str(data["card_number"]) if "card_number" in data else None,
-            card_holder=str(data["card_holder"]) if "card_holder" in data else None,
-        )
-        await audit.log_action(
-            "subscription_config_changed", actor=identity["user_id"],
-            actor_role=identity["role"], target="premium", result="ok",
-            new=f"enabled={cfg.enabled} days={cfg.days} price={cfg.price}",
-            severity="WARNING",
-        )
-        return web.json_response({"ok": True, "config": cfg.__dict__}, headers=_NO_CACHE)
-    except (ValueError, TypeError) as exc:
-        return web.json_response({"error": str(exc)}, status=400, headers=_NO_CACHE)
-    except Exception as exc:  # noqa: BLE001
-        logger.error("Subscription config error: %s", exc, exc_info=True)
-        return web.json_response({"error": "Server error"}, status=500, headers=_NO_CACHE)
-
-
-async def api_subscription_user(request: web.Request) -> web.Response:
-    identity, error = _authorize_permission(request, perms.P_SETTINGS_WRITE)
-    if error is not None:
-        return error
-    user_id = _positive_int(request.match_info.get("user_id"))
-    if user_id is None:
-        return web.json_response({"error": "Invalid user_id"}, status=400)
-    data, error = await _read_json(request)
-    if error is not None:
-        return error
-    assert data is not None
-    action = str(data.get("action") or "").lower()
-    try:
-        if action == "add_days":
-            result = await subscriptions.grant_days(
-                user_id, int(data.get("days") or 0), granted_by=identity["user_id"]
-            )
-        elif action == "set_expiry":
-            raw = str(data.get("expires_at") or "").strip()
-            if len(raw) == 10:
-                raw += "T23:59:59"
-            result = await subscriptions.set_expiry(
-                user_id, raw, granted_by=identity["user_id"]
-            )
-        elif action == "lifetime":
-            result = await subscriptions.grant_lifetime(user_id, granted_by=identity["user_id"])
-        elif action == "cancel":
-            result = await subscriptions.cancel(user_id, granted_by=identity["user_id"])
-        else:
-            return web.json_response({"error": "Unknown subscription action"}, status=400)
-        await audit.log_action(
-            "subscription_user_changed", actor=identity["user_id"], actor_role=identity["role"],
-            target=user_id, result="ok", new=action, severity="WARNING",
-        )
-        bot = request.app.get("bot")
-        if bot is not None:
-            try:
-                if result.get("active"):
-                    expiry = "Cheksiz" if result.get("is_lifetime") else str(result.get("expires_at") or "-").replace("T", " ")[:16]
-                    await bot.send_message(user_id, f"💎 Premium obunangiz faollashtirildi.\n📅 Tugaydi: {expiry}")
-                else:
-                    await bot.send_message(user_id, "ℹ️ Premium obunangiz bekor qilindi.")
-            except Exception:
-                logger.info("Subscription notification failed (user=%s)", user_id)
-        return web.json_response({"ok": True, "subscription": result}, headers=_NO_CACHE)
-    except (ValueError, TypeError) as exc:
-        return web.json_response({"error": str(exc)}, status=400, headers=_NO_CACHE)
-    except Exception as exc:  # noqa: BLE001
-        logger.error("Subscription user action error: %s", exc, exc_info=True)
-        return web.json_response({"error": "Server error"}, status=500, headers=_NO_CACHE)
-
-
-async def api_subscription_payment_review(request: web.Request) -> web.Response:
-    identity, error = _authorize_permission(request, perms.P_SETTINGS_WRITE)
-    if error is not None:
-        return error
-    payment_id = str(request.match_info.get("payment_id") or "").strip()
-    data, error = await _read_json(request)
-    if error is not None:
-        return error
-    assert data is not None
-    action = str(data.get("action") or "").lower()
-    try:
-        if action == "approve":
-            result = await subscriptions.approve_payment(payment_id, reviewed_by=identity["user_id"])
-        elif action == "reject":
-            result = await subscriptions.reject_payment(
-                payment_id, reviewed_by=identity["user_id"], reason=str(data.get("reason") or "")
-            )
-        else:
-            return web.json_response({"error": "action must be approve|reject"}, status=400)
-        await audit.log_action(
-            f"payment_{action}", actor=identity["user_id"], actor_role=identity["role"],
-            target=payment_id, result="ok", new=str(result.get("user_id")), severity="WARNING",
-        )
-        bot = request.app.get("bot")
-        if bot is not None:
-            try:
-                if action == "approve":
-                    expiry = "Cheksiz" if result.get("subscription_lifetime") else str(result.get("subscription_expires_at") or "-").replace("T", " ")[:16]
-                    await bot.send_message(int(result["user_id"]), f"🎉 Premium faollashtirildi!\n📅 Tugaydi: {expiry}\n\nEndi View Once media'larni ? orqali saqlashingiz mumkin.")
-                else:
-                    await bot.send_message(int(result["user_id"]), "❌ To'lov tasdiqlanmadi. Chek yoki to'lov ma'lumotlarini tekshirib, qayta urinib ko'ring.")
-            except Exception:
-                logger.info("Payment review notification failed")
-        return web.json_response({"ok": True, "payment": result}, headers=_NO_CACHE)
-    except ValueError as exc:
-        return web.json_response({"error": str(exc)}, status=409, headers=_NO_CACHE)
-    except Exception as exc:  # noqa: BLE001
-        logger.error("Payment review error: %s", exc, exc_info=True)
-        return web.json_response({"error": "Server error"}, status=500, headers=_NO_CACHE)
-
-
-async def api_subscription_receipt(request: web.Request) -> web.Response:
-    identity, error = _authorize_permission(request, perms.P_SETTINGS_VIEW)
-    if error is not None:
-        return error
-    payment_id = str(request.match_info.get("payment_id") or "").strip()
-    payment = await db.get_payment_request(payment_id)
-    if not payment:
-        return web.json_response({"error": "Payment not found"}, status=404)
-    bot = request.app.get("bot")
-    if bot is None:
-        return web.json_response({"error": "Bot instance not available"}, status=503)
-    try:
-        receipt_kind = str(payment.get("receipt_kind") or "").lower()
-        if receipt_kind not in {"photo", "image", "pdf"}:
-            return web.json_response({"error": "Unsupported receipt type"}, status=415, headers=_NO_CACHE)
-        tg_file = await bot.get_file(payment["receipt_file_id"])
-        if int(tg_file.file_size or 0) > 10 * 1024 * 1024:
-            return web.json_response({"error": "Receipt is too large"}, status=413, headers=_NO_CACHE)
-        buf = io.BytesIO()
-        await bot.download_file(tg_file.file_path, destination=buf)
-        filename = os.path.basename(tg_file.file_path or "receipt") or "receipt"
-        if receipt_kind == "pdf":
-            content_type = "application/pdf"
-            if not filename.lower().endswith(".pdf"):
-                filename = "receipt.pdf"
-        else:
-            guessed = mimetypes.guess_type(filename)[0] or "image/jpeg"
-            content_type = guessed if guessed in {"image/jpeg", "image/png", "image/webp"} else "image/jpeg"
-        return web.Response(
-            body=buf.getvalue(), content_type=content_type,
-            headers={
-                **_NO_CACHE,
-                "Content-Disposition": f'inline; filename="{filename}"',
-                "X-Content-Type-Options": "nosniff",
-                "Content-Security-Policy": "default-src 'none'; img-src 'self' data:",
-            },
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Receipt download failed (%s): %s", payment_id, exc)
-        return web.json_response({"error": "Receipt unavailable"}, status=502, headers=_NO_CACHE)
-
-
-# ---------------------------------------------------------------------------
 # HEALTHCHECK / READINESS (Railway deployment)
 # ---------------------------------------------------------------------------
 _runtime: dict[str, Any] = {"ready": False, "started_at": time.time()}
@@ -1553,11 +1283,6 @@ async def start_web_server(bot=None):  # noqa: ANN201
     app.router.add_get("/api/analytics", api_analytics)
     app.router.add_get("/api/settings", api_get_settings)
     app.router.add_post("/api/settings", api_set_settings)
-    app.router.add_get("/api/subscriptions", api_subscription_overview)
-    app.router.add_post("/api/subscriptions/config", api_subscription_config)
-    app.router.add_post("/api/subscriptions/users/{user_id}", api_subscription_user)
-    app.router.add_post("/api/subscriptions/payments/{payment_id}", api_subscription_payment_review)
-    app.router.add_get("/api/subscriptions/payments/{payment_id}/receipt", api_subscription_receipt)
     app.router.add_get("/api/broadcast/status", api_broadcast_status)
     app.router.add_post("/api/broadcast/preview", api_broadcast_preview)
     app.router.add_post("/api/broadcast/test", api_broadcast_test)
@@ -1565,7 +1290,6 @@ async def start_web_server(bot=None):  # noqa: ANN201
     app.router.add_post("/api/broadcast", api_broadcast)
     app.router.add_get("/api/moderation", api_moderation)
     app.router.add_post("/api/moderation", api_moderate_user)
-    app.router.add_get("/api/messages", api_messages)
     app.router.add_get("/api/users", api_users)
     app.router.add_get("/api/users/{user_id}", api_user_detail)
     app.router.add_post("/api/users/{user_id}/message", api_send_user_message)

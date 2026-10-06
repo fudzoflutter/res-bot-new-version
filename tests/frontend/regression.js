@@ -34,6 +34,7 @@
         w.eval(`INIT_DATA="test-fixture";MY_ROLE="owner";MY_PERMISSIONS=${JSON.stringify(permissions)};applyRoleUi();`);
         w.handle = call => {
             if (call.path.startsWith("/api/users?")) return page([user()]);
+            if (call.path === "/api/users/42") return {...user(), stats:{}, events:[]};
             if (call.path === "/api/moderation") return {banned:[]};
             if (call.path === "/api/broadcast/preview") return {recipients:3, preview_text:"Preview"};
             if (call.path === "/api/broadcast/status") return {running:false,total:3,sent:3,failed:0};
@@ -49,9 +50,10 @@
     const tests = [
         ["Ban Cancel never posts moderation", async()=>{
             const f=await fixture(); await f.w.loadUsers();
-            f.w.document.querySelector(".ban-user").click(); await pause();
+            await f.w.openUserDetail(42);
+            f.$("sheet-ban").click(); await pause();
             assert(postCalls(f,"/api/moderation").length===0,"Cancel performed a ban");
-            assert(!f.w.document.querySelector(".ban-user").disabled,"Cancel left button locked");
+            assert(!f.$("sheet-ban").disabled,"Cancel left button locked");
         }],
         ["Send Cancel displays recipient count and sends nothing", async()=>{
             const f=await fixture(); prepareSend(f);
@@ -80,7 +82,7 @@
         }],
         ["Unchanged users preserve card identity and keyboard focus", async()=>{
             const f=await fixture(); f.w.activateTab("tab-users",{load:false}); await f.w.loadUsers();
-            const card=f.w.document.querySelector(".connection-item"); const button=card.querySelector(".copy-id");
+            const card=f.w.document.querySelector(".connection-item"); const button=card.querySelector(".open-user");
             button.focus(); assert(f.w.document.activeElement===button,"Fixture could not focus real button");
             await f.w.loadUsers(false,{silent:true});
             assert(f.w.document.querySelector(".connection-item")===card,"Unchanged card was replaced");

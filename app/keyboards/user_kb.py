@@ -26,9 +26,6 @@ from app.utils.ui import BtnStyle, btn, kb
 CB_STATS = "user:stats"
 CB_CONNECT = "user:connect"
 CB_BACK_MENU = "user:menu"
-CB_PREMIUM = "user:premium"
-CB_PAYMENT_START = "user:payment:start"
-CB_PAYMENT_CANCEL = "user:payment:cancel"
 
 # Web Admin Panel (TMA) manzili — env orqali o'zgartiriladi (kodda qotib qolmasin).
 DEFAULT_WEBAPP_URL = "https://res-bot-new-version-production.up.railway.app/"
@@ -54,8 +51,8 @@ def admin_panel_menu() -> InlineKeyboardMarkup:
     )
 
 
-def main_menu(*, connected: bool = False, premium_visible: bool = False) -> InlineKeyboardMarkup:
-    """Start menyusi: Statistika, Ulanish va ixtiyoriy Premium."""
+def main_menu(*, connected: bool = False) -> InlineKeyboardMarkup:
+    """Start menyusi: Statistika, Ulanish."""
     connect_label = (
         f"{EMOJI.menu_connect.fallback} Ulangan ✓"
         if connected
@@ -79,8 +76,6 @@ def main_menu(*, connected: bool = False, premium_visible: bool = False) -> Inli
             )
         ],
     ]
-    if premium_visible:
-        rows.append([btn("💎 Premium obuna", CB_PREMIUM, style=BtnStyle.SUCCESS)])
     return kb(rows)
 
 
@@ -111,24 +106,3 @@ def connect_menu(bot_username: str = "") -> InlineKeyboardMarkup:
 
 def back_to_menu() -> InlineKeyboardMarkup:
     return kb([[back_btn()]])
-
-
-def premium_menu(*, card_number: str, show_pay: bool = True) -> InlineKeyboardMarkup:
-    """Premium sahifasi: karta raqami bosilganda nusxalanadi."""
-    rows = []
-    if card_number:
-        digits = "".join(ch for ch in str(card_number) if ch.isdigit())
-        display = " ".join(digits[i:i + 4] for i in range(0, len(digits), 4))
-        rows.append([btn(f"💳 {display}", copy_text=digits)])
-    if show_pay:
-        rows.append([btn("✅ To‘lov qildim", CB_PAYMENT_START, style=BtnStyle.SUCCESS)])
-    rows.append([back_btn()])
-    return kb(rows)
-
-
-def payment_cancel_menu() -> InlineKeyboardMarkup:
-    return kb([[btn("❌ Bekor qilish", CB_PAYMENT_CANCEL, style=BtnStyle.DANGER)]])
-
-
-def premium_required_menu() -> InlineKeyboardMarkup:
-    return kb([[btn("💎 Obuna sotib olish", CB_PREMIUM, style=BtnStyle.SUCCESS)]])

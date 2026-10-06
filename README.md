@@ -312,12 +312,14 @@ Two layers prevent that:
 
 `VOICE_MESSAGES_FORBIDDEN` is the **recipient's** *Voice Messages* privacy
 setting (it covers voice **and** circular video, and a bot is never a contact).
-The bot sends voice notes in their original form. If Telegram rejects a voice
-note because of recipient privacy settings, the bot sends an explanation instead
-of disguising the recording as a `.bin` document. The recipient must allow voice
-messages in *Settings → Privacy and Security → Voice Messages → Everybody* for
-future deleted voice notes to arrive normally. Circular video retains its normal
-video fallback.
+Telegram decides the content type by the **file name**, so the bot still
+delivers the same bytes:
+
+* circular video → sent as a normal **video**;
+* voice note → sent as **`voice.bin`** (OGG/OPUS — plays in any player).
+
+The caption names the reason, and (at most once an hour) the setting to change:
+*Settings → Privacy and Security → **Voice Messages** → Everybody.*
 
 ### Performance
 

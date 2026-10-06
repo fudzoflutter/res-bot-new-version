@@ -49,8 +49,6 @@ _EMPTY_STATS = {
     "users": 0,
     "connections": 0,
     "settings": 0,
-    "subscriptions": 0,
-    "payment_requests": 0,
     "events": 0,
     "activity_log": 0,
 }
@@ -177,8 +175,6 @@ async def sync_sqlite_into(
                 for row in await _rows(conn, "SELECT * FROM bot_settings")
                 if str(row.get("key")) not in _EXCLUDED_SETTING_KEYS
             ],
-            "subscriptions": await _rows(conn, "SELECT * FROM subscriptions"),
-            "payment_requests": await _rows(conn, "SELECT * FROM payment_requests"),
         }
 
         static_applied = False
@@ -210,8 +206,6 @@ async def sync_sqlite_into(
                 "users": static["users"],
                 "connections": static["connections"],
                 "settings": static["settings"],
-                "subscriptions": static["subscriptions"],
-                "payment_requests": static["payment_requests"],
                 "events": events,
                 "activity_log": logs,
             }
@@ -221,15 +215,10 @@ async def sync_sqlite_into(
             stats["users"] += len(batch["users"])
             stats["connections"] += len(batch["connections"])
             stats["settings"] += len(batch["settings"])
-            stats["subscriptions"] += len(batch["subscriptions"])
-            stats["payment_requests"] += len(batch["payment_requests"])
             stats["events"] += len(events)
             stats["activity_log"] += len(logs)
 
-            static = {
-                "users": [], "connections": [], "settings": [],
-                "subscriptions": [], "payment_requests": [],
-            }
+            static = {"users": [], "connections": [], "settings": []}
             static_applied = True
             if is_last:
                 break
