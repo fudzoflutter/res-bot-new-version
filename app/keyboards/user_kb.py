@@ -15,7 +15,7 @@ ko'rsatadi (:func:`admin_panel_menu`).
 
 from __future__ import annotations
 
-import os
+from app.utils.webapp_url import webapp_url
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
@@ -26,15 +26,6 @@ from app.utils.ui import BtnStyle, btn, kb
 CB_STATS = "user:stats"
 CB_CONNECT = "user:connect"
 CB_BACK_MENU = "user:menu"
-
-# Web Admin Panel (TMA) manzili — env orqali o'zgartiriladi (kodda qotib qolmasin).
-DEFAULT_WEBAPP_URL = "https://res-bot-new-version-production.up.railway.app/"
-
-
-def webapp_url() -> str:
-    """Web Admin Panel manzili (``WEBAPP_URL`` env, bo'lmasa standart)."""
-    return (os.getenv("WEBAPP_URL") or DEFAULT_WEBAPP_URL).strip() or DEFAULT_WEBAPP_URL
-
 
 def admin_panel_menu() -> InlineKeyboardMarkup:
     """Admin uchun yagona tugma: Web Mini App'da panelni ochadi."""

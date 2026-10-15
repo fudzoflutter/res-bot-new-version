@@ -176,8 +176,12 @@ by the backend.  Direct user messages require `users.message` and are limited
 to OWNER/ADMIN.  The message journal reads the existing `events` table through
 `GET /api/messages`; no duplicate message store is introduced.
 
-Set `WEBAPP_URL` (public HTTPS URL of this deployment) in `.env` — see
-`.env.example`.
+`WEBAPP_URL` is an optional override for the admin Mini App address.
+On Railway, generate a public domain (Settings > Networking > Public Networking)
+and the current `RAILWAY_PUBLIC_DOMAIN` is used automatically. For a custom
+domain, set `WEBAPP_URL=https://your-domain.example/` in Railway Variables.
+An incorrect URL or a missing domain now raises a clear configuration error.
+See `.env.example`.
 
 Security: the buttons are only UX.  Every `/api/*` request is verified
 server-side (Telegram `initData` HMAC + role + permission, see `app/web.py`);
